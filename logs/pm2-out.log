@@ -28,3 +28,12 @@
 2026-08-22T16:38:40: 🔔 Telebirr notify callback live at http://localhost:14000/api/webhooks/telebirr
 2026-08-22T16:38:40: 🔍 Diagnostic endpoints live at http://localhost:14000/test/pay & /test/vend
 2026-08-22T16:38:43: [0mGET / [32m200[0m 8.902 ms - 237[0m
+2026-08-22T17:24:04: 🚀 AFen Vending Machine QR Middleware running on http://localhost:19000
+2026-08-22T17:24:04: 🏥 Health check live at http://localhost:19000/
+2026-08-22T17:24:04: 📖 Swagger API Docs live at http://localhost:19000/api-docs
+2026-08-22T17:24:04: 🛠️ Developer Workbench live at http://localhost:19000/workbench
+2026-08-22T17:24:04: 💳 Electric Pay endpoint live at http://localhost:19000/api/vending/pay
+2026-08-22T17:24:04: 📦 Electric Pickup polling live at http://localhost:19000/api/vending/vend
+2026-08-22T17:24:04: 🔔 Telebirr notify callback live at http://localhost:19000/api/webhooks/telebirr
+2026-08-22T17:24:04: 🔍 Diagnostic endpoints live at http://localhost:19000/test/pay & /test/vend
+2026-08-22T17:24:09: [0mGET / [32m200[0m 9.786 ms - 237[0m
