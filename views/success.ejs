@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title><%= title || "TOMOCA Coffee" %></title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background-color: #FAFAF9;
+      color: #1C1917;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between max-w-sm mx-auto px-4 py-8">
+  <!-- Header: TOMOCA Logo & Title -->
+  <header class="text-center pt-2 pb-4">
+    <img src="/images/logo.png" class="h-10 mx-auto object-contain" alt="TOMOCA Coffee" onError="this.style.display='none'; document.getElementById('logoFallbackText').style.display='block';" />
+    <div id="logoFallbackText" class="hidden font-bold text-lg text-stone-900 tracking-wide uppercase">
+      TOMOCA COFFEE
+    </div>
+    <h1 class="mt-2 text-base font-black text-stone-900 tracking-widest uppercase">
+      TOMOCA COFFEE
+    </h1>
+  </header>
+
+  <!-- Main Status Card -->
+  <main class="my-auto space-y-6">
+    <div id="statusCard" class="bg-white rounded-2xl border border-stone-200 shadow-sm p-6 text-center space-y-4 transition-all duration-300">
+      
+      <!-- Initial State: Minimalist Orange Spinner -->
+      <div id="verifyingState" class="space-y-4 py-3">
+        <div class="w-12 h-12 rounded-full border-4 border-orange-200 border-t-orange-600 animate-spin mx-auto"></div>
+        <div class="text-sm font-semibold text-stone-700">
+          Verifying payment...
+        </div>
+      </div>
+
+      <!-- Paid / Complete State (Hidden initially) -->
+      <div id="confirmedState" class="hidden space-y-3 py-3">
+        <div class="w-14 h-14 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto text-2xl shadow-sm">
+          <i class="fa-solid fa-check"></i>
+        </div>
+        <div>
+          <h2 class="text-xl font-extrabold text-stone-900">Payment Confirmed</h2>
+          <p id="dispenseSubtext" class="text-sm font-medium text-emerald-600 mt-1">
+            Please collect your item from Slot <%= sid || 1 %>.
+          </p>
+        </div>
+      </div>
+
+      <!-- Timeout State (Hidden initially) -->
+      <div id="timeoutState" class="hidden space-y-4 py-3">
+        <div class="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto text-xl font-bold">
+          !
+        </div>
+        <div class="space-y-1">
+          <h2 class="text-base font-bold text-stone-900">Payment Pending Verification</h2>
+          <p class="text-xs text-stone-500">
+            If payment was deducted, please check your dispenser slot or contact support with reference: <strong class="font-mono text-stone-700"><%= orderNo %></strong>.
+          </p>
+        </div>
+        <button onclick="location.reload()" class="w-full py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-semibold text-xs rounded-xl transition-colors">
+          Refresh Status
+        </button>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Minimal Footer -->
+  <footer class="text-center text-xs text-stone-400 py-2">
+    <p>TOMOCA Coffee © <%= new Date().getFullYear() %></p>
+  </footer>
+
+  <script>
+    const orderNo = "<%= orderNo %>";
+    let pollTimer = null;
+    let timeoutTimer = null;
+
+    async function checkStatus() {
+      try {
+        const res = await fetch(`/api/orders/${orderNo}/status`);
+        const data = await res.json();
+
+        if (data.paid) {
+          clearInterval(pollTimer);
+          clearTimeout(timeoutTimer);
+          showConfirmedState(data.slotNo || "<%= sid || 1 %>");
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function showConfirmedState(slotNo) {
+      document.getElementById('verifyingState').classList.add('hidden');
+      document.getElementById('timeoutState').classList.add('hidden');
+      document.getElementById('confirmedState').classList.remove('hidden');
+
+      document.getElementById('dispenseSubtext').innerText = `Please collect your item from Slot ${slotNo}.`;
+    }
+
+    function showTimeoutState() {
+      clearInterval(pollTimer);
+      document.getElementById('verifyingState').classList.add('hidden');
+      document.getElementById('confirmedState').classList.add('hidden');
+      document.getElementById('timeoutState').classList.remove('hidden');
+    }
+
+    // Poll every 1.5 seconds as specified
+    pollTimer = setInterval(checkStatus, 1500);
+
+    // 30-second timeout handling
+    timeoutTimer = setTimeout(showTimeoutState, 30000);
+
+    // Initial check immediately
+    checkStatus();
+  </script>
+</body>
+</html>

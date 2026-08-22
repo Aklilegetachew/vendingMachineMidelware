@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AFen Vending Middleware - Developer Workbench</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0b0f19; color: #f3f4f6; }
+    .glass { background: rgba(17, 24, 39, 0.75); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .glow { box-shadow: 0 0 25px -5px rgba(59, 130, 246, 0.5); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #111827; }
+    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+  </style>
+</head>
+<body class="min-h-screen pb-12">
+  <!-- Top Navigation -->
+  <header class="glass sticky top-0 z-50 border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center font-bold text-white shadow-lg glow">
+        <i class="fa-solid fa-store text-lg"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold bg-gradient-to-r from-white via-gray-200 to-gray-400 bg-clip-text text-transparent">
+          AFen Vending QR Middleware
+        </h1>
+        <p class="text-xs text-blue-400 font-medium">EthSwitch IPS ET / NBE Dynamic QR Interoperability</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <a href="/api-docs" target="_blank" class="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-400 text-xs font-semibold flex items-center gap-2 transition-all">
+        <i class="fa-solid fa-book"></i> Swagger API Docs
+      </a>
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        SSE Live Stream Active
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 pt-8 space-y-8">
+    <!-- Action Banner & Simulation Tools -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Fast Simulator Form -->
+      <div class="glass p-6 rounded-2xl border border-gray-800 space-y-4">
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-bolt text-amber-400"></i> Simulate Machine Pay Request
+        </h2>
+        <form id="simPayForm" class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 mb-1">Vending Machine ID</label>
+            <input type="text" id="machineId" value="2504150044" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" required />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 mb-1">Slot No</label>
+              <input type="number" id="slotNo" value="12" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" required />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 mb-1">Price (ETB)</label>
+              <input type="number" step="0.5" id="price" value="25.00" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" required />
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 mb-1">Order No</label>
+            <div class="flex gap-2">
+              <input type="text" id="orderNo" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" required />
+              <button type="button" onclick="genOrderNo()" class="bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs px-3 rounded-lg border border-gray-700">Auto</button>
+            </div>
+          </div>
+          <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm rounded-lg shadow-lg transition-all flex items-center justify-center gap-2">
+            <i class="fa-solid fa-qrcode"></i> Initiate Pay (`/api/vending/pay`)
+          </button>
+        </form>
+      </div>
+
+      <!-- Generated EMVCo QR Code Card -->
+      <div class="glass p-6 rounded-2xl border border-gray-800 flex flex-col items-center justify-center text-center space-y-4">
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Live EMVCo Dynamic QR Code</h2>
+        <div id="qrcode" class="p-3 bg-white rounded-xl shadow-xl min-w-[160px] min-h-[160px] flex items-center justify-center">
+          <p class="text-xs text-gray-400 italic">Initiate pay request to generate QR code</p>
+        </div>
+        <div class="w-full">
+          <label class="block text-xs font-medium text-gray-500 mb-1 text-left">TLV String Output:</label>
+          <div id="qrString" class="text-xs font-mono bg-gray-950 p-2.5 rounded-lg border border-gray-800 break-all max-h-24 overflow-y-auto text-emerald-400">
+            -
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Webhook Simulation Tool -->
+      <div class="glass p-6 rounded-2xl border border-gray-800 space-y-4 flex flex-col justify-between">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-credit-card text-emerald-400"></i> Simulate Customer Payment
+          </h2>
+          <p class="text-xs text-gray-400 mt-1">
+            Simulate incoming callback from Telebirr / CBE Birr / EthSwitch to transition order state to <span class="text-emerald-400 font-semibold">PAID</span>.
+          </p>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 mb-1">Target Order No</label>
+            <input type="text" id="webhookOrderNo" placeholder="e.g. ORD123456" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" />
+          </div>
+
+          <button type="button" onclick="simulatePaymentWebhook()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm rounded-lg shadow-lg transition-all flex items-center justify-center gap-2">
+            <i class="fa-solid fa-check-circle"></i> Trigger Payment Webhook (`/api/webhooks/payment`)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Orders Table & SSE Stream -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Live Orders Table -->
+      <div class="glass p-6 rounded-2xl border border-gray-800 space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-list-check text-blue-400"></i> Live Transactions
+          </h2>
+          <button onclick="loadOrders()" class="text-xs text-blue-400 hover:underline"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs text-gray-300">
+            <thead class="bg-gray-900 text-gray-400 uppercase font-semibold">
+              <tr>
+                <th class="px-3 py-2 rounded-l-lg">Order ID</th>
+                <th class="px-3 py-2">Slot</th>
+                <th class="px-3 py-2">Price</th>
+                <th class="px-3 py-2">Status</th>
+                <th class="px-3 py-2 rounded-r-lg">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ordersTableBody" class="divide-y divide-gray-800">
+              <tr>
+                <td colspan="5" class="py-6 text-center text-gray-500 italic">No orders logged yet</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Real-Time SSE Log Feed -->
+      <div class="glass p-6 rounded-2xl border border-gray-800 space-y-4 flex flex-col h-[420px]">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-terminal text-purple-400"></i> Real-Time Request Traffic (SSE)
+          </h2>
+          <button onclick="clearLogs()" class="text-xs text-gray-400 hover:text-white"><i class="fa-solid fa-trash"></i> Clear</button>
+        </div>
+
+        <div id="sseLogs" class="flex-1 bg-gray-950 p-4 rounded-xl border border-gray-900 font-mono text-xs overflow-y-auto space-y-2 text-gray-300">
+          <div class="text-gray-500 italic">[System] Connected to live SSE event stream...</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let qrcodeObj = null;
+
+    function genOrderNo() {
+      document.getElementById('orderNo').value = 'ORD' + Math.floor(100000 + Math.random() * 900000);
+    }
+    genOrderNo();
+
+    function renderQr(stringData) {
+      document.getElementById('qrString').innerText = stringData;
+      const qrContainer = document.getElementById('qrcode');
+      qrContainer.innerHTML = '';
+      if (stringData && stringData !== '-') {
+        qrcodeObj = new QRCode(qrContainer, {
+          text: stringData,
+          width: 150,
+          height: 150,
+          colorDark : "#000000",
+          colorLight : "#ffffff",
+          correctLevel : QRCode.CorrectLevel.M
+        });
+      }
+    }
+
+    document.getElementById('simPayForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        machineId: document.getElementById('machineId').value,
+        slotNo: parseInt(document.getElementById('slotNo').value, 10),
+        price: parseFloat(document.getElementById('price').value),
+        orderNo: document.getElementById('orderNo').value,
+      };
+
+      try {
+        const res = await fetch('/api/vending/pay', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.code === 0 && data.data?.qrCode) {
+          renderQr(data.data.qrCode);
+          document.getElementById('webhookOrderNo').value = data.data.orderNo;
+          loadOrders();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    async function simulatePaymentWebhook(orderNoToPay) {
+      const targetOrderNo = orderNoToPay || document.getElementById('webhookOrderNo').value;
+      if (!targetOrderNo) {
+        alert('Please specify an Order No');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/webhooks/payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderNo: targetOrderNo,
+            amount: 25.00,
+            referenceNumber: 'REF-' + Date.now(),
+            paymentMethod: 'EthSwitch/Telebirr'
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          loadOrders();
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loadOrders() {
+      try {
+        const res = await fetch('/api/orders');
+        const data = await res.json();
+        const tbody = document.getElementById('ordersTableBody');
+        tbody.innerHTML = '';
+
+        if (!data.orders || data.orders.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-gray-500 italic">No orders logged yet</td></tr>';
+          return;
+        }
+
+        data.orders.forEach(o => {
+          let badgeClass = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+          if (o.status === 'PAID') badgeClass = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+          if (o.status === 'DISPENSED') badgeClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-gray-800/40 transition-colors';
+          tr.innerHTML = `
+            <td class="px-3 py-3 font-mono font-semibold text-white">${o.orderNo}</td>
+            <td class="px-3 py-3">${o.slotNo}</td>
+            <td class="px-3 py-3 text-emerald-400 font-semibold">ETB ${o.price.toFixed(2)}</td>
+            <td class="px-3 py-3">
+              <span class="px-2 py-0.5 text-[10px] font-bold rounded border ${badgeClass}">${o.status}</span>
+            </td>
+            <td class="px-3 py-3">
+              ${o.status === 'INITIATED' ? `<button onclick="simulatePaymentWebhook('${o.orderNo}')" class="px-2 py-1 bg-emerald-600/80 hover:bg-emerald-500 text-white rounded text-[11px] font-semibold">Simulate Pay</button>` : `<span class="text-gray-500">-</span>`}
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function appendSseLog(type, payload, timestamp) {
+      const sseLogs = document.getElementById('sseLogs');
+      const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+      const div = document.createElement('div');
+      div.className = 'border-l-2 border-blue-500 pl-3 py-1';
+      div.innerHTML = `
+        <div class="flex items-center gap-2 text-[11px] text-gray-400">
+          <span class="text-blue-400 font-bold">[${type}]</span>
+          <span>${time}</span>
+        </div>
+        <div class="text-xs text-gray-200 mt-0.5 break-all">${JSON.stringify(payload)}</div>
+      `;
+      sseLogs.prepend(div);
+    }
+
+    function clearLogs() {
+      document.getElementById('sseLogs').innerHTML = '<div class="text-gray-500 italic">[System] Logs cleared</div>';
+    }
+
+    // Connect SSE Stream
+    const evtSource = new EventSource('/api/events');
+    evtSource.onmessage = function(event) {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type !== 'CONNECTED') {
+          appendSseLog(data.type, data.payload, data.timestamp);
+          loadOrders();
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    loadOrders();
+  </script>
+</body>
+</html>

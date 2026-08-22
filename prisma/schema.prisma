@@ -1,0 +1,93 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Order {
+  id               String    @id @default(uuid())
+  orderNo          String    @unique
+  machineId        String
+  slotNo           Int
+  goodsId          String?
+  price            Float
+  qrCode           String
+  status           String    @default("INITIATED") // INITIATED, PAID, DISPENSED, FAILED, CANCELLED
+  paymentReference String?
+  paymentMethod    String?
+  paidAt           DateTime?
+  dispensedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Telebirr: merch_order_id sent in preOrder (unique per payment attempt, and
+  // parseable back to orderNo). transactionId is the gateway's trans_id and is
+  // unique so a redelivered notify cannot be fulfilled twice.
+  merchOrderId  String?
+  transactionId String? @unique
+  prepayId      String?
+
+  @@index([machineId])
+  @@index([status])
+  @@index([merchOrderId])
+}
+
+model TrafficLog {
+  id          String   @id @default(uuid())
+  endpoint    String
+  method      String
+  headers     String?
+  queryParams String?
+  body        String?
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  @@index([endpoint])
+  @@index([createdAt])
+}
+
+model VendingMachine {
+  id          String       @id @default(uuid())
+  machineCode String       @unique
+  name        String
+  location    String?
+  status      String       @default("ONLINE")
+  lastPing    DateTime     @default(now())
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  payments    PaymentLog[]
+}
+
+model PaymentLog {
+  id               String         @id @default(uuid())
+  transactionId    String         @unique
+  vendingMachineId String
+  vendingMachine   VendingMachine @relation(fields: [vendingMachineId], references: [id], onDelete: Cascade)
+  paymentMethod    String
+  amount           Float
+  currency         String         @default("ETB")
+  status           String         @default("PENDING")
+  referenceNumber  String?
+  itemId           String?
+  itemName         String?
+  metadata         String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  dispenseLogs     DispenseLog[]
+
+  @@index([vendingMachineId])
+  @@index([status])
+}
+
+model DispenseLog {
+  id           String     @id @default(uuid())
+  paymentLogId String
+  paymentLog   PaymentLog @relation(fields: [paymentLogId], references: [id], onDelete: Cascade)
+  slotNumber   String
+  status       String     @default("PENDING")
+  errorMessage String?
+  createdAt    DateTime   @default(now())
+}
