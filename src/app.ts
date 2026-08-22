@@ -28,6 +28,11 @@ import { errorHandler } from './middleware/errorHandler';
 
 const app: Express = express();
 
+// Running behind nginx. Without this, req.ip is the proxy's address, which
+// would make the Telebirr callback audit log record 127.0.0.1 for every
+// notification instead of the address it actually arrived from.
+app.set('trust proxy', 1);
+
 // Configure View Engine & Static Directory
 app.set('view engine', 'ejs');
 app.set('views', path.join(process.cwd(), 'views'));

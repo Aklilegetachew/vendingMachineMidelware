@@ -10,3 +10,21 @@
 2026-08-22T16:26:34: [0mGET /workbench [32m200[0m 2.185 ms - 14807[0m
 2026-08-22T16:26:34: [0mGET /pay?mid=M1&sid=1&pri=25.00 [32m200[0m 16.169 ms - 4584[0m
 2026-08-22T16:26:34: [0mGET /pay?mid=M1&sid=1&pri=25.00 [32m200[0m 8.846 ms - 4584[0m
+2026-08-22T16:26:59: 🚀 AFen Vending Machine QR Middleware running on http://localhost:14000
+2026-08-22T16:26:59: 🏥 Health check live at http://localhost:14000/
+2026-08-22T16:26:59: 📖 Swagger API Docs live at http://localhost:14000/api-docs
+2026-08-22T16:26:59: 🛠️ Developer Workbench live at http://localhost:14000/workbench
+2026-08-22T16:26:59: 💳 Electric Pay endpoint live at http://localhost:14000/api/vending/pay
+2026-08-22T16:26:59: 📦 Electric Pickup polling live at http://localhost:14000/api/vending/vend
+2026-08-22T16:26:59: 🔔 Telebirr notify callback live at http://localhost:14000/api/webhooks/telebirr
+2026-08-22T16:26:59: 🔍 Diagnostic endpoints live at http://localhost:14000/test/pay & /test/vend
+2026-08-22T16:27:03: [0mGET / [32m200[0m 9.724 ms - 237[0m
+2026-08-22T16:38:40: 🚀 AFen Vending Machine QR Middleware running on http://localhost:14000
+2026-08-22T16:38:40: 🏥 Health check live at http://localhost:14000/
+2026-08-22T16:38:40: 📖 Swagger API Docs live at http://localhost:14000/api-docs
+2026-08-22T16:38:40: 🛠️ Developer Workbench live at http://localhost:14000/workbench
+2026-08-22T16:38:40: 💳 Electric Pay endpoint live at http://localhost:14000/api/vending/pay
+2026-08-22T16:38:40: 📦 Electric Pickup polling live at http://localhost:14000/api/vending/vend
+2026-08-22T16:38:40: 🔔 Telebirr notify callback live at http://localhost:14000/api/webhooks/telebirr
+2026-08-22T16:38:40: 🔍 Diagnostic endpoints live at http://localhost:14000/test/pay & /test/vend
+2026-08-22T16:38:43: [0mGET / [32m200[0m 8.902 ms - 237[0m

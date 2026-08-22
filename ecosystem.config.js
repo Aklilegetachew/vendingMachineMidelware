@@ -32,7 +32,7 @@ module.exports = {
 
       env: {
         NODE_ENV: 'production',
-        PORT: 14000,
+        PORT: 19000,
       },
 
       // Restart policy. A crash loop backs off instead of hammering the DB.
