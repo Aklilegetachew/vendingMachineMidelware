@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title><%= title || "TOMOCA Coffee" %></title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background-color: #FAFAF9;
+      color: #1C1917;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between max-w-sm mx-auto px-4 py-8">
+  <!-- Header: TOMOCA Logo -->
+  <header class="text-center pt-2 pb-4">
+    <img src="/images/logo.png" class="h-10 mx-auto object-contain" alt="TOMOCA Coffee" onError="this.style.display='none'; document.getElementById('logoFallbackText').style.display='block';" />
+    <div id="logoFallbackText" class="hidden font-bold text-lg text-stone-900 tracking-wide uppercase">
+      TOMOCA COFFEE
+    </div>
+  </header>
+
+  <!-- Main Card: Invalid Session Notice -->
+  <main class="my-auto space-y-6">
+    <div class="bg-white rounded-2xl border border-stone-200 shadow-sm p-6 space-y-5 text-center">
+      <!-- Neutral warning mark, deliberately not alarming -->
+      <div class="w-14 h-14 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto">
+        <span class="text-2xl font-black text-amber-600">!</span>
+      </div>
+
+      <div class="space-y-2">
+        <h1 class="text-xl font-black text-stone-900">
+          This link is not a valid order
+        </h1>
+        <p class="text-sm text-stone-600 leading-relaxed">
+          <%= reason %>
+        </p>
+      </div>
+
+      <div class="bg-stone-50 border border-stone-200 rounded-xl p-4">
+        <p class="text-sm font-semibold text-stone-800">
+          Please scan the QR code on the machine
+        </p>
+        <p class="text-xs text-stone-500 mt-1 leading-relaxed">
+          Each order is created when you scan. Opening this page directly, or reusing an old
+          link, cannot start a payment.
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <!-- Minimal Footer -->
+  <footer class="text-center text-xs text-stone-400 py-2">
+    <p>TOMOCA Coffee &copy; <%= new Date().getFullYear() %></p>
+  </footer>
+</body>
+</html>

@@ -1,42 +1,83 @@
 import { Request, Response } from 'express';
+import { z } from 'zod';
 import { orderStore } from '../services/orderStore';
 import { eventBroadcaster } from '../services/eventBroadcaster';
 import { sandboxPaymentsAllowed } from '../config/telebirr';
 
 /**
+ * Query parameters a machine supplies when its QR code is scanned.
+ *
+ * There are deliberately no defaults. A missing or unparseable value means the
+ * visitor did not arrive from a machine scan, and inventing a price and order
+ * number for them renders a checkout page that cannot be paid.
+ */
+const checkoutParamsSchema = z.object({
+  mid: z.string().trim().min(1, 'machine id is required'),
+  sid: z.coerce.number({ invalid_type_error: 'slot must be a number' }).int().min(0),
+  pri: z.coerce.number({ invalid_type_error: 'price must be a number' }).positive().finite(),
+  pid: z.string().trim().min(1).optional(),
+});
+
+/** Renders the "scan from the machine" notice instead of an unpayable checkout. */
+function renderInvalid(res: Response, reason: string): void {
+  res.status(400).render('invalid', { title: 'TOMOCA Coffee', reason });
+}
+
+/**
  * GET /pay
- * Minimalist Mobile QR Scan landing page controller.
- * Extracts mid, sid, pid, pri and renders views/checkout.ejs
+ * Mobile checkout landing page, reached by scanning the QR on a machine.
+ *
+ * Two ways in: an existing `orderNo`, or the `mid` / `sid` / `pri` triple that
+ * creates a new order. Anything else gets the invalid notice, never a page
+ * built from placeholder values.
  */
 export const renderCheckoutPage = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { mid, sid, pid, pri, orderNo: customOrderNo } = req.query;
+    const { orderNo: customOrderNo } = req.query;
 
-    let order = customOrderNo ? await orderStore.getOrder(String(customOrderNo)) : null;
+    // Path 1: returning to an order that already exists.
+    if (customOrderNo) {
+      const existing = await orderStore.getOrder(String(customOrderNo));
 
-    if (!order && mid && sid && pri) {
-      order = await orderStore.createCheckoutOrder({
-        mid: String(mid),
-        sid: parseInt(String(sid), 10),
-        pid: pid ? String(pid) : '1',
-        pri: parseFloat(String(pri)),
-        customOrderNo: customOrderNo ? String(customOrderNo) : undefined,
+      if (!existing) {
+        renderInvalid(res, 'That order number does not exist. It may have expired.');
+        return;
+      }
+
+      res.render('checkout', {
+        title: 'TOMOCA Coffee',
+        mid: existing.machineId,
+        sid: existing.slotNo,
+        pid: existing.goodsId || '1',
+        price: existing.price.toFixed(2),
+        orderNo: existing.orderNo,
+        sandbox: sandboxPaymentsAllowed(),
       });
+      return;
     }
 
-    const machineId = order?.machineId || String(mid || '2504150044');
-    const slotNo = order?.slotNo || (sid ? parseInt(String(sid), 10) : 1);
-    const productId = order?.goodsId || String(pid || '1');
-    const price = order?.price ? order.price.toFixed(2) : parseFloat(String(pri || '70.00')).toFixed(2);
-    const orderNo = order?.orderNo || `ORD-${Date.now()}-1001`;
+    // Path 2: a fresh scan. Every parameter must be present and valid.
+    const parsed = checkoutParamsSchema.safeParse(req.query);
+
+    if (!parsed.success) {
+      renderInvalid(res, 'This page was opened without the details a machine provides.');
+      return;
+    }
+
+    const order = await orderStore.createCheckoutOrder({
+      mid: parsed.data.mid,
+      sid: parsed.data.sid,
+      pid: parsed.data.pid,
+      pri: parsed.data.pri,
+    });
 
     res.render('checkout', {
       title: 'TOMOCA Coffee',
-      mid: machineId,
-      sid: slotNo,
-      pid: productId,
-      price,
-      orderNo,
+      mid: order.machineId,
+      sid: order.slotNo,
+      pid: order.goodsId || '1',
+      price: order.price.toFixed(2),
+      orderNo: order.orderNo,
       sandbox: sandboxPaymentsAllowed(),
     });
   } catch (error: any) {
@@ -54,19 +95,26 @@ export const renderSuccessPage = async (req: Request, res: Response): Promise<vo
     const { orderNo } = req.query;
 
     if (!orderNo) {
-      res.redirect('/pay');
+      renderInvalid(res, 'No order number was supplied.');
       return;
     }
 
     const order = await orderStore.getOrder(String(orderNo));
 
+    // Same rule as the checkout page: show the real order or say plainly that
+    // there isn't one. Never fill the card with placeholder values.
+    if (!order) {
+      renderInvalid(res, 'That order number does not exist. It may have expired.');
+      return;
+    }
+
     res.render('success', {
       title: 'TOMOCA Coffee',
-      orderNo: String(orderNo),
-      mid: order?.machineId || '2504150044',
-      sid: order?.slotNo || 1,
-      price: order?.price ? order.price.toFixed(2) : '70.00',
-      status: order?.status || 'PENDING',
+      orderNo: order.orderNo,
+      mid: order.machineId,
+      sid: order.slotNo,
+      price: order.price.toFixed(2),
+      status: order.status,
     });
   } catch (error: any) {
     res.status(500).send(`Error rendering success page: ${error.message}`);
