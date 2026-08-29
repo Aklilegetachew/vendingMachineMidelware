@@ -10,17 +10,21 @@ import {
   handleDirectVendPoll,
   getOrderStatus,
   renderMockTelebirrPage,
+  getCheckoutSession,
 } from './controllers/checkoutController';
 import {
   initiateTelebirrPayment,
   handleTelebirrNotify,
   handleTelebirrReturn,
+  createMiniAppOrder,
+  miniAppAuthToken,
 } from './controllers/telebirrController';
 import { sandboxPaymentsAllowed } from './config/telebirr';
 import { handleVendingPay, handleVendingVend } from './controllers/vendingController';
 import { handlePaymentWebhook } from './controllers/webhookController';
 import { handleTestDiagnostics } from './controllers/testController';
 import { getHealthStatus } from './controllers/health.controller';
+import { renderBridgeCheck, reportBridgeCheck } from './controllers/diagnosticsController';
 import { orderStore } from './services/orderStore';
 import { eventBroadcaster } from './services/eventBroadcaster';
 import { setupSwagger } from './config/swagger';
@@ -67,8 +71,18 @@ app.get('/workbench', (_req: Request, res: Response) => {
 app.get('/pay', renderCheckoutPage);
 app.get('/pay/success', renderSuccessPage);
 app.post('/api/payment/telebirr/initiate', initiateTelebirrPayment);
+
+// Mini App (InApp) endpoints, called from inside the telebirr SuperApp.
+app.post('/api/payment/telebirr/miniapp/order', createMiniAppOrder);
+app.post('/api/payment/telebirr/miniapp/auth', miniAppAuthToken);
 app.get('/pay/telebirr/return', handleTelebirrReturn);
+
+// Bridge diagnostics: open /pay/bridge-check on the phone inside the SuperApp
+// and watch the result arrive in the /workbench feed.
+app.get('/pay/bridge-check', renderBridgeCheck);
+app.post('/api/diagnostics/bridge', reportBridgeCheck);
 app.get('/api/orders/:orderNo/status', getOrderStatus);
+app.get('/api/checkout/session', getCheckoutSession);
 
 // Sandbox simulator: marks orders paid with no gateway involvement, so it is
 // off unless TELE_ALLOW_SANDBOX_PAY=true and NODE_ENV is not production.

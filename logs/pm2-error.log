@@ -1,0 +1,1 @@
+2026-08-28T18:28:31: [telebirr] TELE_PUBLIC_KEY is not set - notify signatures cannot be verified. Every callback will be confirmed via queryOrder instead (slower, still safe).

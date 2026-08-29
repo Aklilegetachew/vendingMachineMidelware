@@ -1,3 +1,21 @@
 node_modules/
 dist/
+logs/
+
+# Secrets. .env holds the Telebirr private key and app secret.
 .env
+.env.backup.*
+.env.*.local
+
+# Portal notes: pasted verbatim from the developer portal and contains the
+# merchant private key in plain text. Keep it local.
+fromportalKnowldges.txt
+
+# Vendor reference material, downloaded from the developer portal. Large, not
+# ours to redistribute, and nothing in the app depends on it. The findings that
+# mattered are written up in src/services/telebirr/AGENTS.md.
+macle_demo_EN/
+Shop MiniApp Demo Project/
+devtool/
+*.vsix
+  

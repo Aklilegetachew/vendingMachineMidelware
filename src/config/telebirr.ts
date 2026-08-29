@@ -70,6 +70,10 @@ export function loadTelebirrConfig(): TelebirrConfig {
     redirectUrl: process.env.TELE_REDIRECT_URL!.trim(),
     timeoutMs: parseInt(process.env.TELE_TIMEOUT_MS || '30000', 10),
     sslVerify: process.env.TELE_SSL_VERIFY !== 'false',
+    // Mini App (InApp) payee routing. Defaults come from the portal sample code.
+    payeeType: process.env.TELE_PAYEE_TYPE || '5000',
+    payeeIdentifier: process.env.TELE_PAYEE_IDENTIFIER || '220311',
+    payeeIdentifierType: process.env.TELE_PAYEE_IDENTIFIER_TYPE || '04',
   };
 }
 

@@ -75,23 +75,142 @@
     </div>
   </main>
 
+  <!-- Bridge status. Visible while integrating so a device shows plainly
+       whether telebirr injected its payment bridge. -->
+  <div id="bridgeStatus" class="mx-auto mb-2 px-3 py-2 rounded-lg border text-center text-xs font-semibold bg-stone-100 border-stone-200 text-stone-500">
+    checking telebirr bridge...
+  </div>
+
   <!-- Minimal Footer -->
   <footer class="text-center text-xs text-stone-400 py-2">
     <p>TOMOCA Coffee © <%= new Date().getFullYear() %>
     </p>
   </footer>
 
+  <!-- On-device console. Opt in with ?debug=1 - there is no devtools inside
+       the SuperApp, so this is how you read errors from the bridge call. -->
+  <script>
+    if (location.search.indexOf('debug=1') !== -1) {
+      var s = document.createElement('script');
+      s.src = '/vconsole.min.js';
+      s.onload = function () { new window.VConsole(); };
+      document.head.appendChild(s);
+    }
+  </script>
+
   <script>
     const orderNo = "<%= orderNo %>";
+
+    // Report the environment so a failed bridge is visible server side too,
+    // and show the result on the page for whoever is holding the phone.
+    (function () {
+      var hasConsumerapp = typeof window.consumerapp !== 'undefined' && window.consumerapp !== null;
+      var hasStartPay = typeof window.ma !== 'undefined' && window.ma && typeof window.ma.startPay === 'function';
+
+      var el = document.getElementById('bridgeStatus');
+      if (hasStartPay) {
+        el.className = 'mx-auto mb-2 px-3 py-2 rounded-lg border text-center text-xs font-semibold bg-green-50 border-green-200 text-green-700';
+        el.textContent = 'SUCCESS - telebirr bridge found (native ma.startPay)';
+      } else if (hasConsumerapp) {
+        el.className = 'mx-auto mb-2 px-3 py-2 rounded-lg border text-center text-xs font-semibold bg-green-50 border-green-200 text-green-700';
+        el.textContent = 'SUCCESS - telebirr bridge found (consumerapp)';
+      } else {
+        el.className = 'mx-auto mb-2 px-3 py-2 rounded-lg border text-center text-xs font-semibold bg-red-50 border-red-200 text-red-700';
+        el.textContent = 'ERROR - no telebirr bridge. Browser mode, payment will redirect.';
+      }
+
+      fetch('/api/diagnostics/bridge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hasConsumerapp: hasConsumerapp,
+          hasMa: typeof window.ma !== 'undefined' && window.ma !== null,
+          hasStartPay: hasStartPay,
+          paymentPath: hasStartPay ? 'native ma.startPay' : hasConsumerapp ? 'H5 consumerapp.evaluate' : 'browser redirect',
+          userAgent: navigator.userAgent,
+          href: location.href
+        })
+      }).catch(function () {});
+    })();
+
+    /**
+     * Inside the telebirr SuperApp the bridge object `window.consumerapp` is
+     * injected. Its presence is what tells us to run the Mini App (InApp) flow
+     * rather than the browser redirect flow.
+     */
+    function inSuperApp() {
+      var hasConsumerapp = typeof window.consumerapp !== 'undefined' && window.consumerapp !== null;
+      var hasStartPay = typeof window.ma !== 'undefined' && window.ma && typeof window.ma.startPay === 'function';
+      return hasConsumerapp || hasStartPay;
+    }
+
+    function resetBtn() {
+      const btn = document.getElementById('payBtn');
+      const btnText = document.getElementById('payBtnText');
+      btn.disabled = false;
+      btn.classList.remove('opacity-75', 'cursor-not-allowed');
+      btnText.innerText = 'Pay with Telebirr';
+    }
+
+    // The SuperApp calls this by name once the PIN sheet closes. It proves
+    // nothing about payment, so it only sends us to the page that polls for
+    // the real status confirmed by the notify callback.
+    window.handleinitDataCallback = function () {
+      window.location.href = '/pay/success?orderNo=' + encodeURIComponent(orderNo);
+    };
 
     async function initiatePayment() {
       const btn = document.getElementById('payBtn');
       const btnText = document.getElementById('payBtnText');
       btn.disabled = true;
       btn.classList.add('opacity-75', 'cursor-not-allowed');
-      btnText.innerText = 'Redirecting...';
+      btnText.innerText = inSuperApp() ? 'Opening telebirr...' : 'Redirecting...';
 
       try {
+        if (inSuperApp()) {
+          // Mini App path: the server returns a rawRequest STRING, not JSON.
+          const res = await fetch('/api/payment/telebirr/miniapp/order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderNo })
+          });
+          const rawRequest = (await res.text()).trim();
+
+          if (!res.ok || !rawRequest) {
+            alert('Could not start payment: ' + (rawRequest || 'unknown error'));
+            resetBtn();
+            return;
+          }
+
+          // Native mini app exposes ma.startPay (see the shop demo). A plain
+          // SuperApp webview only has the consumerapp bridge. Prefer native.
+          if (typeof window.ma !== 'undefined' && window.ma && typeof window.ma.startPay === 'function') {
+            window.ma.startPay({
+              rawRequest: rawRequest,
+              success: function (res) {
+                console.log('startPay result', res && res.resultCode);
+                window.handleinitDataCallback();
+              },
+              fail: function (err) {
+                console.error('startPay failed', err);
+                alert('Payment could not be started');
+                resetBtn();
+              }
+            });
+            return;
+          }
+
+          window.consumerapp.evaluate(JSON.stringify({
+            functionName: 'js_fun_start_pay',
+            params: {
+              rawRequest: rawRequest,
+              functionCallBackName: 'handleinitDataCallback'
+            }
+          }));
+          return;
+        }
+
+        // Browser path: redirect to the hosted checkout page.
         const res = await fetch('/api/payment/telebirr/initiate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -102,16 +221,12 @@
           window.location.href = data.toPayUrl;
         } else {
           alert('Error starting Telebirr session: ' + (data.message || 'Unknown error'));
-          btn.disabled = false;
-          btn.classList.remove('opacity-75', 'cursor-not-allowed');
-          btnText.innerText = 'Pay with Telebirr';
+          resetBtn();
         }
       } catch (err) {
         console.error(err);
         alert('Network error connecting to payment gateway');
-        btn.disabled = false;
-        btn.classList.remove('opacity-75', 'cursor-not-allowed');
-        btnText.innerText = 'Pay with Telebirr';
+        resetBtn();
       }
     }
 

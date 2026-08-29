@@ -237,3 +237,73 @@ export const renderMockTelebirrPage = async (req: Request, res: Response): Promi
     </html>
   `);
 };
+
+/**
+ * GET /api/checkout/session
+ *
+ * JSON equivalent of renderCheckoutPage, for the React front end. Same two ways
+ * in and the same validation: an existing `orderNo`, or the mid/sid/pri triple
+ * that creates an order. No defaults, so an invalid request is told so rather
+ * than handed a placeholder order it can never pay for.
+ */
+export const getCheckoutSession = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orderNo: customOrderNo } = req.query;
+
+    if (customOrderNo) {
+      const existing = await orderStore.getOrder(String(customOrderNo));
+
+      if (!existing) {
+        res.status(404).json({
+          success: false,
+          message: 'That order number does not exist. It may have expired.',
+        });
+        return;
+      }
+
+      res.status(200).json({ success: true, order: toSessionPayload(existing) });
+      return;
+    }
+
+    const parsed = checkoutParamsSchema.safeParse(req.query);
+
+    if (!parsed.success) {
+      res.status(400).json({
+        success: false,
+        message: 'This page was opened without the details a machine provides.',
+      });
+      return;
+    }
+
+    const order = await orderStore.createCheckoutOrder({
+      mid: parsed.data.mid,
+      sid: parsed.data.sid,
+      pid: parsed.data.pid,
+      pri: parsed.data.pri,
+    });
+
+    res.status(201).json({ success: true, order: toSessionPayload(order) });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** Only the fields the checkout UI needs. Price is a 2 decimal string. */
+function toSessionPayload(order: {
+  orderNo: string;
+  machineId: string;
+  slotNo: number;
+  goodsId?: string | null;
+  price: number;
+  status: string;
+}) {
+  return {
+    orderNo: order.orderNo,
+    machineId: order.machineId,
+    slotNo: order.slotNo,
+    productId: order.goodsId || '1',
+    price: order.price.toFixed(2),
+    status: order.status,
+    paid: order.status === 'PAID' || order.status === 'VENDED',
+  };
+}

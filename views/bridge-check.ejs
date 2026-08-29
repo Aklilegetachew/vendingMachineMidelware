@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-stone-50 max-w-sm mx-auto px-4 py-6 font-sans">
+  <h1 class="text-lg font-black text-stone-900 mb-1">telebirr bridge check</h1>
+  <p class="text-xs text-stone-500 mb-4">
+    Open this page inside the telebirr SuperApp. Results also appear on
+    <span class="font-mono">/workbench</span>.
+  </p>
+
+  <div id="verdict" class="rounded-xl p-4 mb-4 text-center border">checking...</div>
+
+  <div class="space-y-2" id="rows"></div>
+
+  <details class="mt-4">
+    <summary class="text-xs text-stone-500">Raw detail</summary>
+    <pre id="raw" class="text-[10px] bg-white border border-stone-200 rounded-lg p-2 mt-2 overflow-x-auto whitespace-pre-wrap"></pre>
+  </details>
+
+  <script>
+    // Detect both payment mechanisms. `consumerapp` is injected into a SuperApp
+    // webview (H5 route). `ma` is the Macle mini app global, whose startPay is
+    // the native route. Either one means payment can be started in-app.
+    var hasConsumerapp = typeof window.consumerapp !== 'undefined' && window.consumerapp !== null;
+    var hasMa = typeof window.ma !== 'undefined' && window.ma !== null;
+    var hasStartPay = hasMa && typeof window.ma.startPay === 'function';
+
+    var paymentPath = hasStartPay ? 'native ma.startPay'
+      : hasConsumerapp ? 'H5 consumerapp.evaluate'
+      : 'browser redirect (not in SuperApp)';
+
+    var report = {
+      hasConsumerapp: hasConsumerapp,
+      hasMa: hasMa,
+      hasStartPay: hasStartPay,
+      paymentPath: paymentPath,
+      userAgent: navigator.userAgent,
+      href: location.href,
+      // Anything injected by a host app usually shows up as an unusual global.
+      globals: Object.keys(window).filter(function (k) {
+        return /consumer|macle|^ma$|telebirr|jsbridge|webview/i.test(k);
+      })
+    };
+
+    var inApp = hasConsumerapp || hasStartPay;
+    var verdict = document.getElementById('verdict');
+    verdict.className = 'rounded-xl p-4 mb-4 text-center border ' +
+      (inApp ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200');
+    verdict.innerHTML = inApp
+      ? '<div class="text-2xl font-black text-green-700">BRIDGE FOUND</div>' +
+        '<div class="text-xs text-green-800 mt-1">' + paymentPath + '</div>'
+      : '<div class="text-2xl font-black text-amber-700">NO BRIDGE</div>' +
+        '<div class="text-xs text-amber-800 mt-1">Plain browser, or the SuperApp did not inject it</div>';
+
+    function row(label, ok) {
+      return '<div class="flex items-center justify-between bg-white border border-stone-200 rounded-lg px-3 py-2">' +
+        '<span class="text-xs text-stone-700">' + label + '</span>' +
+        '<span class="text-xs font-bold ' + (ok ? 'text-green-600' : 'text-stone-400') + '">' +
+        (ok ? 'YES' : 'no') + '</span></div>';
+    }
+
+    document.getElementById('rows').innerHTML =
+      row('window.consumerapp', hasConsumerapp) +
+      row('window.ma', hasMa) +
+      row('ma.startPay', hasStartPay);
+
+    document.getElementById('raw').textContent = JSON.stringify(report, null, 2);
+
+    // Send it to the server so it is visible from a laptop.
+    fetch('/api/diagnostics/bridge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(report)
+    }).catch(function (e) { console.error(e); });
+  </script>
+</body>
+</html>

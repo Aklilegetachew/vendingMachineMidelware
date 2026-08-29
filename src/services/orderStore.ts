@@ -133,6 +133,24 @@ export class OrderStore {
     return { ...updated, expiresAt };
   }
 
+  /**
+   * Find an order by the merch_order_id we sent to Telebirr.
+   *
+   * The gateway's alphanumeric constraint means merch_order_id can no longer be
+   * parsed back into an orderNo, so this lookup is the fallback when a callback
+   * arrives without usable callback_info.
+   */
+  public async getOrderByMerchOrderId(merchOrderId: string): Promise<OrderData | null> {
+    const order = await prisma.order.findFirst({
+      where: { merchOrderId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) return null;
+
+    const expiresAt = new Date(new Date(order.createdAt).getTime() + 5 * 60 * 1000);
+    return { ...order, expiresAt };
+  }
+
   /** Record the Telebirr attempt so a callback can be mapped back to this order. */
   public async attachTelebirrAttempt(
     orderNo: string,

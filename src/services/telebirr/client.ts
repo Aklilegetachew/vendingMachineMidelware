@@ -29,6 +29,10 @@ export interface TelebirrConfig {
   notifyUrl: string;
   redirectUrl: string;
   timeoutMs?: number;
+  /** Mini App (InApp) payee routing. See the portal sample code. */
+  payeeType?: string;
+  payeeIdentifier?: string;
+  payeeIdentifierType?: string;
   /** Leave true unless the gateway chain genuinely fails to validate. */
   sslVerify?: boolean;
   /** Optional hook for append-only audit logging. */
@@ -188,9 +192,26 @@ export const timestamp = (): string => String(Math.floor(Date.now() / 1000));
 export const nonce = (): string =>
   crypto.randomBytes(16).toString("hex").toUpperCase();
 
-/** Unique per attempt, and parseable back to your internal id. */
-export const createMerchantOrderId = (orderId: string | number): string =>
-  `ORD${orderId}T${timestamp()}`;
+/**
+ * Unique per attempt, and accepted by the gateway's validator.
+ *
+ * The gateway rejects anything outside an alphanumeric pattern with
+ * "merch_order_id type mismatch", so every separator is stripped and the whole
+ * value is kept within 32 characters. The timestamp is preserved intact for
+ * uniqueness across retries; the order id is truncated from the left if needed.
+ *
+ * This is NOT reliably parseable back to your internal id any more. Map a
+ * callback home with `callback_info` (primary) or by looking up the stored
+ * merch_order_id (fallback).
+ */
+export const MERCH_ORDER_ID_MAX = 32;
+
+export const createMerchantOrderId = (orderId: string | number): string => {
+  const ts = timestamp();
+  const clean = String(orderId).replace(/[^A-Za-z0-9]/g, "");
+  const room = MERCH_ORDER_ID_MAX - ts.length - 1; // 1 for the "T" separator
+  return `${clean.slice(-room)}T${ts}`;
+};
 
 /** Recover your internal id from a callback. Prefers callback_info. */
 export function extractOrderId(payload: Record<string, unknown>): string | null {
@@ -563,5 +584,110 @@ export class TelebirrClient {
       merchantOrderId,
       via: trustedNotify ? "notify" : "query",
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Mini App (InApp) mode
+  //
+  // Same token, signing and notify machinery as Checkout mode. Two differences:
+  // trade_type is "InApp" with payee routing fields, and instead of a redirect
+  // URL the SuperApp is handed a `rawRequest` string for its payment JS bridge.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Exchange the SuperApp `access_token` for the user's identity.
+   *
+   * Only works for a request originating inside the SuperApp, since that is
+   * where the access token comes from.
+   */
+  async authToken(appToken: string): Promise<Record<string, unknown>> {
+    const token = await this.applyFabricToken();
+
+    return this.sendSigned<Record<string, unknown>>(
+      "/payment/v1/auth/authToken",
+      {
+        timestamp: timestamp(),
+        nonce_str: nonce(),
+        method: "payment.authtoken",
+        version: "1.0",
+        biz_content: {
+          access_token: appToken,
+          trade_type: "InApp",
+          appid: this.config.merchantAppId,
+          resource_type: "OpenId",
+        },
+      },
+      token,
+    );
+  }
+
+  /** preOrder in InApp mode, returning the rawRequest the JS bridge expects. */
+  async createInAppOrder(params: {
+    orderId: string | number;
+    amount: number;
+    title: string;
+    callbackInfo?: string;
+  }): Promise<{ rawRequest: string; merchantOrderId: string; prepayId: string }> {
+    const token = await this.applyFabricToken();
+    const merchantOrderId = createMerchantOrderId(params.orderId);
+
+    const request: Record<string, unknown> = {
+      timestamp: timestamp(),
+      nonce_str: nonce(),
+      method: "payment.preorder",
+      version: "1.0",
+      biz_content: {
+        notify_url: this.config.notifyUrl,
+        business_type: "BuyGoods",
+        trade_type: "InApp",
+        appid: this.config.merchantAppId,
+        merch_code: this.config.merchantCode,
+        merch_order_id: merchantOrderId,
+        title: params.title.replace(/[^A-Za-z0-9 ]/g, "").slice(0, 120),
+        total_amount: params.amount.toFixed(2),
+        trans_currency: "ETB",
+        timeout_express: "120m",
+        payee_identifier: this.config.payeeIdentifier ?? "220311",
+        payee_identifier_type: this.config.payeeIdentifierType ?? "04",
+        payee_type: this.config.payeeType ?? "5000",
+        callback_info: String(params.callbackInfo ?? params.orderId),
+      },
+    };
+
+    const response = await this.sendSigned<{
+      result?: string;
+      code?: string;
+      msg?: string;
+      biz_content?: { prepay_id?: string };
+    }>("/payment/v1/merchant/preOrder", request, token);
+
+    const prepayId = response.biz_content?.prepay_id;
+    if (response.result !== "SUCCESS" || response.code !== "0" || !prepayId) {
+      await this.log("inapp_preorder_failed", response);
+      throw new Error(response.msg || "Telebirr InApp preorder failed.");
+    }
+
+    return { rawRequest: this.buildRawRequest(prepayId), merchantOrderId, prepayId };
+  }
+
+  /**
+   * The `rawRequest` query string handed to `js_fun_start_pay`.
+   *
+   * Unlike the Checkout URL this carries `sign_type` inside the string, and no
+   * `version` or `trade_type`. Canonicalisation still drops `sign_type` before
+   * signing, so the signature covers the same five params either way.
+   */
+  private buildRawRequest(prepayId: string): string {
+    const maps: Record<string, string> = {
+      appid: this.config.merchantAppId,
+      merch_code: this.config.merchantCode,
+      nonce_str: nonce(),
+      prepay_id: prepayId,
+      timestamp: timestamp(),
+      sign_type: "SHA256WithRSA",
+    };
+
+    const pairs = Object.entries(maps).map(([key, value]) => `${key}=${value}`);
+    return `${pairs.join("&")}&sign=${this.sign(maps)}`;
   }
 }

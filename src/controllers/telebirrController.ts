@@ -40,7 +40,7 @@ export const initiateTelebirrPayment = async (req: Request, res: Response): Prom
       amount: order.price,
       title: `Vending Order ${order.orderNo}`,
       // Round-trips back untouched in the notify payload - our primary way of
-      // mapping a callback home. merchOrderId is the parseable backup.
+      // mapping a callback home. The stored merchOrderId is the fallback.
       callbackInfo: order.orderNo,
       redirectUrl: `${process.env.TELE_REDIRECT_URL}?orderNo=${encodeURIComponent(order.orderNo)}`,
     });
@@ -98,11 +98,15 @@ export const handleTelebirrNotify = async (req: Request, res: Response): Promise
       return;
     }
 
-    if (!result.orderId) {
-      throw new Error('Unable to map Telebirr callback to a local order');
+    // Map the callback home: callback_info first, then the stored
+    // merch_order_id. The gateway's alphanumeric constraint means
+    // merch_order_id cannot be parsed back into an orderNo any more.
+    let order = result.orderId ? await orderStore.getOrder(result.orderId) : null;
+
+    if (!order && result.merchantOrderId) {
+      order = await orderStore.getOrderByMerchOrderId(result.merchantOrderId);
     }
 
-    const order = await orderStore.getOrder(result.orderId);
     if (!order) {
       await telebirrAudit('notify_unknown_order', result);
       res.status(200).json({ code: 0, msg: 'success' });
@@ -200,4 +204,96 @@ export const handleTelebirrReturn = async (req: Request, res: Response): Promise
   }
 
   res.redirect(`/pay/success?orderNo=${encodeURIComponent(orderNo)}`);
+};
+
+/**
+ * POST /api/payment/telebirr/miniapp/order
+ *
+ * Mini App checkout. Returns the `rawRequest` string as PLAIN TEXT, because the
+ * SuperApp sample reads it with `res.text()` and hands it straight to the
+ * payment JS bridge. Do not wrap it in JSON.
+ */
+export const createMiniAppOrder = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orderNo } = req.body;
+
+    if (!orderNo) {
+      res.status(400).type('text/plain').send('Missing orderNo');
+      return;
+    }
+
+    const order = await orderStore.getOrder(String(orderNo));
+    if (!order) {
+      res.status(404).type('text/plain').send('Order not found');
+      return;
+    }
+
+    if (order.status === 'PAID' || order.status === 'VENDED') {
+      res.status(409).type('text/plain').send('Order has already been paid');
+      return;
+    }
+
+    const result = await getTelebirrClient().createInAppOrder({
+      orderId: order.orderNo,
+      amount: order.price,
+      title: `Vending Order ${order.orderNo}`,
+      callbackInfo: order.orderNo,
+    });
+
+    await orderStore.attachTelebirrAttempt(
+      order.orderNo,
+      result.merchantOrderId,
+      result.prepayId
+    );
+
+    eventBroadcaster.broadcast('TELEBIRR_MINIAPP_INITIATED', {
+      orderNo: order.orderNo,
+      merchOrderId: result.merchantOrderId,
+    });
+
+    res.status(200).type('text/plain').send(result.rawRequest);
+  } catch (error: any) {
+    await telebirrAudit('miniapp_order_failed', {
+      orderNo: req.body?.orderNo,
+      error: String(error),
+    });
+    res.status(502).type('text/plain').send(error.message || 'Could not create Telebirr order');
+  }
+};
+
+/**
+ * POST /api/payment/telebirr/miniapp/auth
+ *
+ * Exchanges the SuperApp `access_token` for the user's identity (`open_id`).
+ * Only meaningful for a request originating inside the SuperApp.
+ */
+export const miniAppAuthToken = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const accessToken = req.body?.access_token || req.body?.accessToken;
+
+    if (!accessToken) {
+      res.status(400).json({ success: false, message: 'Missing access_token' });
+      return;
+    }
+
+    const result = await getTelebirrClient().authToken(String(accessToken));
+    const biz = (result.biz_content ?? result) as Record<string, unknown>;
+
+    if (String(result.result ?? '') !== 'SUCCESS' || String(result.code ?? '') !== '0') {
+      await telebirrAudit('miniapp_auth_failed', result);
+      res.status(502).json({ success: false, message: String(result.msg || 'Auth failed') });
+      return;
+    }
+
+    // Only the identifiers, never the raw token, back to the client.
+    res.status(200).json({
+      success: true,
+      openId: biz.open_id ?? null,
+      identityId: biz.identityId ?? null,
+      identityType: biz.identityType ?? null,
+    });
+  } catch (error: any) {
+    await telebirrAudit('miniapp_auth_error', { error: String(error) });
+    res.status(502).json({ success: false, message: error.message || 'Auth failed' });
+  }
 };
