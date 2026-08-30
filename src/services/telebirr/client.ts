@@ -29,9 +29,11 @@ export interface TelebirrConfig {
   notifyUrl: string;
   redirectUrl: string;
   timeoutMs?: number;
-  /** Mini App (InApp) payee routing. See the portal sample code. */
+  /**
+   * Mini App (InApp) payee routing. `payee_identifier` is not configurable: it
+   * always mirrors `merchantCode`, which is what the gateway expects.
+   */
   payeeType?: string;
-  payeeIdentifier?: string;
   payeeIdentifierType?: string;
   /** Leave true unless the gateway chain genuinely fails to validate. */
   sslVerify?: boolean;
@@ -658,7 +660,8 @@ export class TelebirrClient {
         total_amount: params.amount.toFixed(2),
         trans_currency: "ETB",
         timeout_express: "120m",
-        payee_identifier: this.config.payeeIdentifier ?? "220311",
+        // payee_identifier is the merchant code, same value as merch_code.
+        payee_identifier: this.config.merchantCode,
         payee_identifier_type: this.config.payeeIdentifierType ?? "04",
         payee_type: this.config.payeeType ?? "5000",
         callback_info: String(params.callbackInfo ?? params.orderId),

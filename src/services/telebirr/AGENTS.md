@@ -91,8 +91,10 @@ API demo). Those demos are not kept in this repo, so the findings live here.
 - **InApp preOrder differs from Checkout**: `trade_type: "InApp"`,
   `business_type: "BuyGoods"`, no `redirect_url`, plus payee routing
   (`payee_type`, `payee_identifier`, `payee_identifier_type`, all env overridable).
-  The sample code says payee type `5000` / identifier `220311`; the portal doc page
-  says `3000` / the merchant code. The sample won by default. Unresolved.
+  `payee_identifier` always mirrors `merch_code` (both `TELE_MERCHANT_CODE`) and is
+  deliberately NOT env configurable, so a stale value cannot diverge from the merchant
+  code. `payee_type` stays `5000` from the sample; the doc page says `3000`, unresolved
+  but accepted by the gateway as `5000`.
 - **`rawRequest` carries `sign_type` in the string but not in the signature.**
   Canonicalisation drops it, so the signature still covers the same five params as
   the checkout URL. It also has no `version` or `trade_type`.

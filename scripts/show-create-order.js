@@ -52,7 +52,7 @@ if (mode === 'checkout') {
   biz.trade_type = 'Checkout';
 } else {
   biz.trade_type = 'InApp';
-  biz.payee_identifier = process.env.TELE_PAYEE_IDENTIFIER || '220311';
+  biz.payee_identifier = cfg.merchantCode; // same value as merch_code
   biz.payee_identifier_type = process.env.TELE_PAYEE_IDENTIFIER_TYPE || '04';
   biz.payee_type = process.env.TELE_PAYEE_TYPE || '5000';
 }
