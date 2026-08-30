@@ -8,7 +8,7 @@ function resolveDatabaseUrl(): string {
     return process.env.DATABASE_URL;
   }
 
-  const dbType = (process.env.DB_TYPE || 'sqlite').toLowerCase();
+  const dbType = (process.env.DB_TYPE || 'mysql').toLowerCase();
   const dbUser = process.env.DB_USER || 'root';
   const dbPassword = process.env.DB_PASSWORD || '';
   const dbHost = process.env.DB_HOST || 'localhost';
@@ -23,7 +23,9 @@ function resolveDatabaseUrl(): string {
     return `mysql://${dbUser}:${encodeURIComponent(dbPassword)}@${dbHost}:${dbPort}/${dbName}`;
   }
 
-  return 'file:./dev.db';
+  // Prisma's provider is mysql, so a SQLite URL would fail at startup anyway.
+  // Fall back to a mysql URL built from the DB_* parts.
+  return `mysql://${dbUser}:${encodeURIComponent(dbPassword)}@${dbHost}:${dbPort}/${dbName}`;
 }
 
 export const config = {
@@ -31,7 +33,7 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
 
   // Database Connection Credentials
-  dbType: process.env.DB_TYPE || 'sqlite',
+  dbType: process.env.DB_TYPE || 'mysql',
   dbHost: process.env.DB_HOST || 'localhost',
   dbPort: process.env.DB_PORT || '5432',
   dbUser: process.env.DB_USER || 'vending_user',

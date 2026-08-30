@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { orderStore } from '../services/orderStore';
 import { eventBroadcaster } from '../services/eventBroadcaster';
 import { sandboxPaymentsAllowed } from '../config/telebirr';
+import { reconcilePendingOrder } from '../services/telebirr/reconcile';
 
 /**
  * Query parameters a machine supplies when its QR code is scanned.
@@ -174,6 +175,11 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
 export const getOrderStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const orderNo = String(req.params.orderNo);
+
+    // Do not wait to be told. If this order is still pending, ask Telebirr
+    // directly, throttled internally so polling cannot hammer queryOrder.
+    await reconcilePendingOrder(orderNo);
+
     const order = await orderStore.getOrder(orderNo);
 
     if (!order) {

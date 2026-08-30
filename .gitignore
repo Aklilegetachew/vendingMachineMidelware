@@ -19,3 +19,7 @@ Shop MiniApp Demo Project/
 devtool/
 *.vsix
   
+# SQLite database. Lives on the server, never in the repo - both sides write
+# to it, so tracking it guarantees a merge conflict on every deploy.
+prisma/dev.db
+prisma/*.db-journal

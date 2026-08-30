@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Orders &amp; Telebirr log</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-stone-950 text-stone-200 min-h-screen p-4 font-sans text-sm">
+  <div class="max-w-7xl mx-auto space-y-4">
+
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <h1 class="text-lg font-bold text-white">Orders &amp; Telebirr log</h1>
+      <div class="flex items-center gap-3 text-xs">
+        <label class="flex items-center gap-1">
+          <input type="checkbox" id="auto" checked class="accent-orange-500" /> auto refresh
+        </label>
+        <button onclick="load()" class="px-2 py-1 bg-stone-800 hover:bg-stone-700 rounded">Refresh</button>
+      </div>
+    </div>
+
+    <!-- Order funnel: where orders stop tells you which step is broken -->
+    <div id="counts" class="grid grid-cols-2 sm:grid-cols-5 gap-2"></div>
+
+    <div class="grid lg:grid-cols-2 gap-4">
+      <!-- Orders -->
+      <div class="bg-stone-900 rounded-lg border border-stone-800 overflow-hidden">
+        <div class="px-3 py-2 border-b border-stone-800 flex items-center justify-between">
+          <span class="font-semibold text-white">Orders</span>
+          <select id="filter" onchange="render()" class="bg-stone-800 text-xs rounded px-2 py-1 border border-stone-700">
+            <option value="">all</option>
+            <option value="PAID">paid only</option>
+            <option value="VENDED">vended only</option>
+            <option value="PENDING">pending only</option>
+          </select>
+        </div>
+        <div class="overflow-x-auto max-h-[28rem] overflow-y-auto">
+          <table class="w-full text-xs">
+            <thead class="bg-stone-900 sticky top-0 text-stone-400">
+              <tr>
+                <th class="text-left px-2 py-1">order</th>
+                <th class="text-left px-2 py-1">status</th>
+                <th class="text-right px-2 py-1">price</th>
+                <th class="text-left px-2 py-1">slot</th>
+                <th class="text-left px-2 py-1">txn id</th>
+              </tr>
+            </thead>
+            <tbody id="orders"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Telebirr audit trail -->
+      <div class="bg-stone-900 rounded-lg border border-stone-800 overflow-hidden">
+        <div class="px-3 py-2 border-b border-stone-800 flex items-center justify-between">
+          <span class="font-semibold text-white">Telebirr log</span>
+          <select id="channel" onchange="load()" class="bg-stone-800 text-xs rounded px-2 py-1 border border-stone-700">
+            <option value="">all channels</option>
+            <option value="notify_raw">notify_raw (callback body)</option>
+            <option value="notify_confirmed">notify_confirmed</option>
+            <option value="notify_fulfilled">notify_fulfilled</option>
+            <option value="notify_error">notify_error</option>
+            <option value="request_sent">request_sent</option>
+            <option value="request_ok">request_ok</option>
+            <option value="bridge_check">bridge_check</option>
+          </select>
+        </div>
+        <div id="log" class="max-h-[28rem] overflow-y-auto divide-y divide-stone-800"></div>
+      </div>
+    </div>
+
+    <p class="text-xs text-stone-500">
+      No <span class="font-mono">notify_raw</span> entries means Telebirr never reached this
+      server. Entries present but orders still PENDING means the callback arrived and was
+      rejected: open the entry to see why.
+    </p>
+  </div>
+
+<script>
+  var KEY = new URLSearchParams(location.search).get('key') || '';
+  var q = KEY ? '&key=' + encodeURIComponent(KEY) : '';
+  var allOrders = [];
+
+  function badge(status) {
+    var map = {
+      PENDING: 'bg-stone-700 text-stone-300',
+      PAID: 'bg-green-900 text-green-300',
+      VENDED: 'bg-blue-900 text-blue-300',
+      EXPIRED: 'bg-red-900 text-red-300'
+    };
+    return '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold ' +
+      (map[status] || 'bg-stone-700') + '">' + status + '</span>';
+  }
+
+  function render() {
+    var f = document.getElementById('filter').value;
+    var rows = f ? allOrders.filter(function (o) { return o.status === f; }) : allOrders;
+    document.getElementById('orders').innerHTML = rows.map(function (o) {
+      return '<tr class="border-t border-stone-800 hover:bg-stone-800/50">' +
+        '<td class="px-2 py-1 font-mono text-[10px]">' + o.orderNo + '</td>' +
+        '<td class="px-2 py-1">' + badge(o.status) + '</td>' +
+        '<td class="px-2 py-1 text-right">' + o.price + '</td>' +
+        '<td class="px-2 py-1">' + o.slotNo + '</td>' +
+        '<td class="px-2 py-1 font-mono text-[10px] text-stone-400">' + (o.transactionId || '-') + '</td>' +
+        '</tr>';
+    }).join('') || '<tr><td colspan="5" class="px-2 py-4 text-center text-stone-500">no orders</td></tr>';
+  }
+
+  async function load() {
+    try {
+      var od = await (await fetch('/api/diagnostics/orders?limit=100' + q)).json();
+      allOrders = od.orders || [];
+      var counts = od.counts || {};
+      var order = ['PENDING', 'PAID', 'VENDED', 'EXPIRED'];
+      document.getElementById('counts').innerHTML =
+        order.map(function (k) {
+          return '<div class="bg-stone-900 border border-stone-800 rounded p-2 text-center">' +
+            '<div class="text-xl font-bold text-white">' + (counts[k] || 0) + '</div>' +
+            '<div class="text-[10px] text-stone-400">' + k + '</div></div>';
+        }).join('') +
+        '<div class="bg-stone-900 border border-stone-800 rounded p-2 text-center">' +
+        '<div class="text-xl font-bold text-white">' + allOrders.length + '</div>' +
+        '<div class="text-[10px] text-stone-400">TOTAL</div></div>';
+      render();
+
+      var ch = document.getElementById('channel').value;
+      var ld = await (await fetch('/api/diagnostics/telebirr-log?limit=40' +
+        (ch ? '&channel=' + ch : '') + q)).json();
+      document.getElementById('log').innerHTML = (ld.entries || []).map(function (e) {
+        var body = typeof e.body === 'string' ? e.body : JSON.stringify(e.body, null, 2);
+        return '<details class="px-3 py-2">' +
+          '<summary class="cursor-pointer text-xs">' +
+          '<span class="font-mono text-orange-400">' + e.channel + '</span> ' +
+          '<span class="text-stone-500">' + new Date(e.at).toLocaleTimeString() + '</span>' +
+          '</summary>' +
+          '<pre class="mt-2 text-[10px] bg-stone-950 p-2 rounded overflow-x-auto whitespace-pre-wrap">' +
+          (body || '').replace(/</g, '&lt;') + '</pre></details>';
+      }).join('') || '<div class="px-3 py-4 text-center text-stone-500 text-xs">no telebirr log entries</div>';
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  load();
+  setInterval(function () { if (document.getElementById('auto').checked) load(); }, 4000);
+</script>
+</body>
+</html>

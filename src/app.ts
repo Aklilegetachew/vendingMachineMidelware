@@ -24,7 +24,13 @@ import { handleVendingPay, handleVendingVend } from './controllers/vendingContro
 import { handlePaymentWebhook } from './controllers/webhookController';
 import { handleTestDiagnostics } from './controllers/testController';
 import { getHealthStatus } from './controllers/health.controller';
-import { renderBridgeCheck, reportBridgeCheck } from './controllers/diagnosticsController';
+import {
+  renderBridgeCheck,
+  reportBridgeCheck,
+  getTelebirrLog,
+  getOrderDashboardData,
+  renderDashboard,
+} from './controllers/diagnosticsController';
 import { orderStore } from './services/orderStore';
 import { eventBroadcaster } from './services/eventBroadcaster';
 import { setupSwagger } from './config/swagger';
@@ -81,6 +87,11 @@ app.get('/pay/telebirr/return', handleTelebirrReturn);
 // and watch the result arrive in the /workbench feed.
 app.get('/pay/bridge-check', renderBridgeCheck);
 app.post('/api/diagnostics/bridge', reportBridgeCheck);
+
+// Operations dashboard: which orders got paid, and what Telebirr actually sent.
+app.get('/dashboard', renderDashboard);
+app.get('/api/diagnostics/orders', getOrderDashboardData);
+app.get('/api/diagnostics/telebirr-log', getTelebirrLog);
 app.get('/api/orders/:orderNo/status', getOrderStatus);
 app.get('/api/checkout/session', getCheckoutSession);
 

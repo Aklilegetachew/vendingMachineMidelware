@@ -17,6 +17,10 @@ export interface OrderData {
   paidAt?: Date | null;
   dispensedAt?: Date | null;
   expiresAt?: Date | null;
+  // Telebirr attempt details, set by attachTelebirrAttempt.
+  merchOrderId?: string | null;
+  transactionId?: string | null;
+  prepayId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

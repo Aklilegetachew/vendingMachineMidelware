@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { eventBroadcaster } from '../services/eventBroadcaster';
+import { prisma } from '../lib/prisma';
 import { telebirrAudit } from '../services/telebirr';
 
 /**
@@ -36,4 +37,95 @@ export const reportBridgeCheck = async (req: Request, res: Response): Promise<vo
 /** GET /pay/bridge-check - the page you open on the phone. */
 export const renderBridgeCheck = async (_req: Request, res: Response): Promise<void> => {
   res.render('bridge-check', { title: 'Bridge check' });
+};
+
+/**
+ * GET /api/diagnostics/telebirr-log
+ *
+ * Recent entries from the Telebirr audit trail. This is how you see what the
+ * gateway actually sent, rather than what we hoped it sent.
+ *
+ * Guarded by DASHBOARD_KEY because the entries contain transaction ids and
+ * payment payloads.
+ */
+export const getTelebirrLog = async (req: Request, res: Response): Promise<void> => {
+  if (!dashboardAllowed(req, res)) return;
+
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const channel = req.query.channel ? String(req.query.channel) : null;
+
+    const rows = await prisma.trafficLog.findMany({
+      where: channel
+        ? { endpoint: `telebirr:${channel}` }
+        : { endpoint: { startsWith: 'telebirr:' } },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      entries: rows.map((r) => ({
+        at: r.createdAt,
+        channel: r.endpoint.replace(/^telebirr:/, ''),
+        body: safeParse(r.body),
+      })),
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+function safeParse(raw: string | null): unknown {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Shared guard. When DASHBOARD_KEY is set a matching `key` is required; the
+ * data includes payment details, so it should not be world readable.
+ */
+export function dashboardAllowed(req: Request, res: Response): boolean {
+  const expected = process.env.DASHBOARD_KEY;
+  if (!expected) return true; // not configured: open, same as /workbench
+
+  const given = String(req.query.key || req.headers['x-dashboard-key'] || '');
+  if (given === expected) return true;
+
+  res.status(404).json({ success: false, message: 'Not found' });
+  return false;
+};
+
+/** GET /api/diagnostics/orders - orders grouped by how far they got. */
+export const getOrderDashboardData = async (req: Request, res: Response): Promise<void> => {
+  if (!dashboardAllowed(req, res)) return;
+
+  try {
+    const orders = await prisma.order.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(Number(req.query.limit) || 100, 500),
+    });
+
+    res.status(200).json({
+      success: true,
+      counts: orders.reduce((acc: Record<string, number>, o) => {
+        acc[o.status] = (acc[o.status] || 0) + 1;
+        return acc;
+      }, {}),
+      orders,
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** GET /dashboard - orders and the Telebirr audit trail in one page. */
+export const renderDashboard = async (req: Request, res: Response): Promise<void> => {
+  if (!dashboardAllowed(req, res)) return;
+  res.render('dashboard');
 };
