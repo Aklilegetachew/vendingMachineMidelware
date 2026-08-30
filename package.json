@@ -13,9 +13,9 @@
     "pm2:reload": "pm2 reload ecosystem.config.js",
     "pm2:logs": "pm2 logs vending-middleware",
     "pm2:stop": "pm2 stop vending-middleware",
-    "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push",
-    "prisma:studio": "prisma studio"
+    "prisma:generate": "node scripts/prisma-cli.js generate",
+    "prisma:push": "node scripts/prisma-cli.js db push",
+    "prisma:studio": "node scripts/prisma-cli.js studio"
   },
   "keywords": [
     "vending-machine",
