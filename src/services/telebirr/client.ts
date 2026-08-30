@@ -378,6 +378,16 @@ export class TelebirrClient {
       request.sign = this.sign(request, mode);
       request.sign_type = "SHA256WithRSA";
 
+      // Record the exact signed body before it goes out. This is what Telebirr
+      // support asks for when a request is rejected, and it cannot be
+      // reconstructed afterwards because nonce_str and timestamp change.
+      await this.log("request_sent", {
+        url: `${this.apiBase}${path}`,
+        signMode: mode,
+        canonicalString: canonicalize(request),
+        request,
+      });
+
       try {
         const response = await postJson<T>(
           `${this.apiBase}${path}`,
@@ -386,6 +396,7 @@ export class TelebirrClient {
           this.config,
         );
         this.signMode = mode;
+        await this.log("request_ok", { url: `${this.apiBase}${path}`, response });
         return response;
       } catch (error) {
         lastError = error;

@@ -12,6 +12,17 @@ export * from './client';
  * hence the swallowed error.
  */
 export async function telebirrAudit(channel: string, context?: unknown): Promise<void> {
+  // Print to stdout as well as the database, so `pm2 logs` shows what Telebirr
+  // actually replied without needing to query TrafficLog.
+  try {
+    const text = context === undefined ? '' : JSON.stringify(context);
+    console.log(
+      `[telebirr] ${channel} ${text.length > 1500 ? text.slice(0, 1500) + '...(truncated)' : text}`
+    );
+  } catch {
+    console.log(`[telebirr] ${channel} <unserialisable context>`);
+  }
+
   try {
     await prisma.trafficLog.create({
       data: {

@@ -1,6 +1,0 @@
-
-[2026-08-20T16:38:31.235Z] GET /test/pay?machineId=2504150044&testParam=1
-Headers: {"host":"localhost:3000","connection":"keep-alive","accept":"*/*","accept-language":"*","sec-fetch-mode":"cors","user-agent":"node","accept-encoding":"gzip, deflate"}
-Query: {"machineId":"2504150044","testParam":"1"}
-Body: {}
-----------------------------------------
