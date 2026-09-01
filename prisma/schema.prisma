@@ -14,7 +14,7 @@ model Order {
   slotNo           Int
   goodsId          String?
   price            Float
-  qrCode           String
+  qrCode           String    @db.Text
   status           String    @default("INITIATED") // INITIATED, PAID, DISPENSED, FAILED, CANCELLED
   paymentReference String?
   paymentMethod    String?
@@ -39,9 +39,9 @@ model TrafficLog {
   id          String   @id @default(uuid())
   endpoint    String
   method      String
-  headers     String?
-  queryParams String?
-  body        String?
+  headers     String?  @db.Text
+  queryParams String?  @db.Text
+  body        String?  @db.Text
   ip          String?
   createdAt   DateTime @default(now())
 
@@ -73,7 +73,7 @@ model PaymentLog {
   referenceNumber  String?
   itemId           String?
   itemName         String?
-  metadata         String?
+  metadata         String?        @db.Text
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   dispenseLogs     DispenseLog[]

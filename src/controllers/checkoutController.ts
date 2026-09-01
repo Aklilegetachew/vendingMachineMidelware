@@ -137,6 +137,27 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
       order = await orderStore.getActivePaidOrderForMachine(machineId);
     }
 
+    // The machine's exact request, verbatim. Without this there is no way to
+    // tell whether a WAITING response means "nothing is paid" or "the machine
+    // identified itself in a field or format we do not read".
+    console.log(
+      '[vend] ' +
+        JSON.stringify({
+          method: req.method,
+          // Who is actually calling. The machine, a browser, and Telebirr all
+          // look identical in the access log without these.
+          ip: req.ip,
+          userAgent: req.headers['user-agent'] ?? null,
+          body: req.body ?? null,
+          query: req.query ?? null,
+          contentType: req.headers['content-type'] ?? null,
+          parsed: { machineId: machineId ?? null, orderNo: orderNo ?? null },
+          matched: order
+            ? { orderNo: order.orderNo, status: order.status, machineId: order.machineId }
+            : null,
+        })
+    );
+
     eventBroadcaster.broadcast('DIRECT_VEND_POLL', {
       machineId,
       orderNo: order?.orderNo || orderNo,
