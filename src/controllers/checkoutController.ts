@@ -4,6 +4,7 @@ import { orderStore } from '../services/orderStore';
 import { eventBroadcaster } from '../services/eventBroadcaster';
 import { sandboxPaymentsAllowed } from '../config/telebirr';
 import { reconcilePendingOrder } from '../services/telebirr/reconcile';
+import * as vendExperiment from '../services/vendExperiment';
 
 /**
  * Query parameters a machine supplies when its QR code is scanned.
@@ -128,12 +129,33 @@ export const renderSuccessPage = async (req: Request, res: Response): Promise<vo
  */
 export const handleDirectVendPoll = async (req: Request, res: Response): Promise<void> => {
   try {
-    const machineId = (req.body?.machineId || req.query?.mid || req.query?.machineId) as string;
+    // The AFen machine posts form-encoded fields in TitleCase (MachineID,
+    // SlotNo, TradeNo), not the camelCase this endpoint originally expected.
+    // Both spellings are accepted so nothing that already worked breaks.
+    const machineId = (req.body?.MachineID ||
+      req.body?.machineId ||
+      req.query?.mid ||
+      req.query?.machineId) as string;
     const orderNo = (req.body?.orderNo || req.query?.orderNo) as string;
+    const funCode = String(req.body?.FunCode ?? req.query?.FunCode ?? '');
+
+    /**
+     * Which FunCode means "I am ready, is there anything to dispense?".
+     *
+     * This matters: FunCode 1000 is an inventory report, sent once per slot
+     * roughly every second. Answering VEND to those would fire the dispense
+     * command repeatedly, once per slot, for a single paid order. Only the
+     * poll FunCode may trigger a vend.
+     *
+     * 4000 is the observed bare MachineID poll and is the default. Override
+     * with VEND_POLL_FUNCODE once the machine's protocol document confirms it.
+     */
+    const pollFunCode = process.env.VEND_POLL_FUNCODE || '4000';
+    const isVendPoll = funCode === '' || funCode === pollFunCode;
 
     let order = orderNo ? await orderStore.getOrder(orderNo) : null;
 
-    if (!order && machineId) {
+    if (!order && machineId && isVendPoll) {
       order = await orderStore.getActivePaidOrderForMachine(machineId);
     }
 
@@ -151,12 +173,33 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
           body: req.body ?? null,
           query: req.query ?? null,
           contentType: req.headers['content-type'] ?? null,
-          parsed: { machineId: machineId ?? null, orderNo: orderNo ?? null },
+          parsed: {
+            machineId: machineId ?? null,
+            orderNo: orderNo ?? null,
+            funCode: funCode || null,
+            isVendPoll,
+          },
           matched: order
             ? { orderNo: order.orderNo, status: order.status, machineId: order.machineId }
             : null,
         })
     );
+
+    // Everything the machine says after a dispense command is evidence about
+    // whether the command worked, so capture it while an experiment is running.
+    vendExperiment.recordFollowUp({ funCode, body: req.body });
+
+    // An armed experiment wins over the normal flow, and fires exactly once.
+    const experiment = isVendPoll ? vendExperiment.takeResponse(machineId) : null;
+    if (experiment) {
+      console.log(
+        '[vend] SERVING EXPERIMENT ' +
+          JSON.stringify({ candidate: experiment.candidate, slotNo: experiment.slotNo, body: experiment.body })
+      );
+      eventBroadcaster.broadcast('VEND_EXPERIMENT_SERVED', experiment);
+      res.status(200).type(experiment.contentType).send(experiment.body);
+      return;
+    }
 
     eventBroadcaster.broadcast('DIRECT_VEND_POLL', {
       machineId,
@@ -164,7 +207,14 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
       status: order?.status || 'WAITING',
     });
 
-    if (order && (order.status === 'PAID' || order.status === 'VENDED')) {
+    // Stay quiet while an experiment settles, so the machine's behaviour can be
+    // attributed to the candidate shape and not to a second command behind it.
+    if (vendExperiment.isSettling()) {
+      res.status(200).json({ code: 0, status: 'WAITING', paid: false });
+      return;
+    }
+
+    if (isVendPoll && order && (order.status === 'PAID' || order.status === 'VENDED')) {
       if (order.status === 'PAID') {
         await orderStore.markOrderAsVended(order.orderNo);
       }

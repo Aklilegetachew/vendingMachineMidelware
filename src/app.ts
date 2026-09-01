@@ -30,6 +30,9 @@ import {
   getTelebirrLog,
   getOrderDashboardData,
   renderDashboard,
+  armVendTest,
+  getVendTest,
+  disarmVendTest,
 } from './controllers/diagnosticsController';
 import { orderStore } from './services/orderStore';
 import { eventBroadcaster } from './services/eventBroadcaster';
@@ -92,6 +95,11 @@ app.post('/api/diagnostics/bridge', reportBridgeCheck);
 app.get('/dashboard', renderDashboard);
 app.get('/api/diagnostics/orders', getOrderDashboardData);
 app.get('/api/diagnostics/telebirr-log', getTelebirrLog);
+
+// Dispense experiments: arm a command, watch what the machine does.
+app.post('/api/vend-test/arm', armVendTest);
+app.get('/api/vend-test', getVendTest);
+app.post('/api/vend-test/disarm', disarmVendTest);
 app.get('/api/orders/:orderNo/status', getOrderStatus);
 app.get('/api/checkout/session', getCheckoutSession);
 
