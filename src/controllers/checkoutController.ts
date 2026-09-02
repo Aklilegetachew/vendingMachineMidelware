@@ -4,7 +4,7 @@ import { orderStore } from '../services/orderStore';
 import { eventBroadcaster } from '../services/eventBroadcaster';
 import { sandboxPaymentsAllowed } from '../config/telebirr';
 import { reconcilePendingOrder } from '../services/telebirr/reconcile';
-import * as vendExperiment from '../services/vendExperiment';
+import * as vendQueue from '../services/vendQueue';
 
 /**
  * Query parameters a machine supplies when its QR code is scanned.
@@ -124,120 +124,139 @@ export const renderSuccessPage = async (req: Request, res: Response): Promise<vo
 };
 
 /**
- * Direct AFen Machine Polling Hook: POST /vend & GET /vend
- * Polled by AFen machine screen to inspect paid orders and dispense product.
+ * POST /vend  (also GET, kept for manual checks)
+ *
+ * The AFEN machine's only channel. It posts form-encoded TitleCase fields and
+ * expects TitleCase JSON back: `Code` and `Msg`, not `code` and `msg`.
+ *
+ *   FunCode 1000  inventory heartbeat, one slot per message   -> plain ACK
+ *   FunCode 4000  poll every ~3s, this is where a dispense is handed over
+ *   FunCode 5000  dispense confirmation from the drop sensor  -> ACK, settle order
+ *
+ * Anything unrecognised is acknowledged rather than errored: the machine has no
+ * error path we can observe, and a non-ACK risks stalling its loop.
  */
+const ACK = { Code: '0', Msg: 'SUCCESS' } as const;
+
 export const handleDirectVendPoll = async (req: Request, res: Response): Promise<void> => {
   try {
-    // The AFen machine posts form-encoded fields in TitleCase (MachineID,
-    // SlotNo, TradeNo), not the camelCase this endpoint originally expected.
-    // Both spellings are accepted so nothing that already worked breaks.
-    const machineId = (req.body?.MachineID ||
-      req.body?.machineId ||
-      req.query?.mid ||
-      req.query?.machineId) as string;
-    const orderNo = (req.body?.orderNo || req.query?.orderNo) as string;
-    const funCode = String(req.body?.FunCode ?? req.query?.FunCode ?? '');
+    const body = (req.body ?? {}) as Record<string, string>;
+    const query = (req.query ?? {}) as Record<string, string>;
 
-    /**
-     * Which FunCode means "I am ready, is there anything to dispense?".
-     *
-     * This matters: FunCode 1000 is an inventory report, sent once per slot
-     * roughly every second. Answering VEND to those would fire the dispense
-     * command repeatedly, once per slot, for a single paid order. Only the
-     * poll FunCode may trigger a vend.
-     *
-     * 4000 is the observed bare MachineID poll and is the default. Override
-     * with VEND_POLL_FUNCODE once the machine's protocol document confirms it.
-     */
-    const pollFunCode = process.env.VEND_POLL_FUNCODE || '4000';
-    const isVendPoll = funCode === '' || funCode === pollFunCode;
+    const funCode = String(body.FunCode ?? query.FunCode ?? '');
+    const machineId = String(body.MachineID ?? body.machineId ?? query.mid ?? '');
+    const tradeNo = String(body.TradeNo ?? query.TradeNo ?? '');
 
-    let order = orderNo ? await orderStore.getOrder(orderNo) : null;
-
-    if (!order && machineId && isVendPoll) {
-      order = await orderStore.getActivePaidOrderForMachine(machineId);
-    }
-
-    // The machine's exact request, verbatim. Without this there is no way to
-    // tell whether a WAITING response means "nothing is paid" or "the machine
-    // identified itself in a field or format we do not read".
-    console.log(
-      '[vend] ' +
-        JSON.stringify({
-          method: req.method,
-          // Who is actually calling. The machine, a browser, and Telebirr all
-          // look identical in the access log without these.
-          ip: req.ip,
-          userAgent: req.headers['user-agent'] ?? null,
-          body: req.body ?? null,
-          query: req.query ?? null,
-          contentType: req.headers['content-type'] ?? null,
-          parsed: {
-            machineId: machineId ?? null,
-            orderNo: orderNo ?? null,
-            funCode: funCode || null,
-            isVendPoll,
-          },
-          matched: order
-            ? { orderNo: order.orderNo, status: order.status, machineId: order.machineId }
-            : null,
-        })
-    );
-
-    // Everything the machine says after a dispense command is evidence about
-    // whether the command worked, so capture it while an experiment is running.
-    vendExperiment.recordFollowUp({ funCode, body: req.body });
-
-    // An armed experiment wins over the normal flow, and fires exactly once.
-    const experiment = isVendPoll ? vendExperiment.takeResponse(machineId) : null;
-    if (experiment) {
-      console.log(
-        '[vend] SERVING EXPERIMENT ' +
-          JSON.stringify({ candidate: experiment.candidate, slotNo: experiment.slotNo, body: experiment.body })
-      );
-      eventBroadcaster.broadcast('VEND_EXPERIMENT_SERVED', experiment);
-      res.status(experiment.statusCode).type(experiment.contentType).send(experiment.body);
+    // FunCode 5000: the drop sensor has reported. This is the only message that
+    // says whether the customer actually received anything.
+    if (funCode === '5000') {
+      await settleDispense({ tradeNo, status: String(body.Status ?? ''), body });
+      res.status(200).json(ACK);
       return;
     }
 
-    eventBroadcaster.broadcast('DIRECT_VEND_POLL', {
-      machineId,
-      orderNo: order?.orderNo || orderNo,
-      status: order?.status || 'WAITING',
-    });
+    // FunCode 4000: hand over one queued dispense, or report idle.
+    if (funCode === '4000') {
+      const { command, expired } = vendQueue.dequeue(machineId);
 
-    // Stay quiet while an experiment settles, so the machine's behaviour can be
-    // attributed to the candidate shape and not to a second command behind it.
-    if (vendExperiment.isSettling()) {
-      res.status(200).json({ code: 0, status: 'WAITING', paid: false });
-      return;
-    }
-
-    if (isVendPoll && order && (order.status === 'PAID' || order.status === 'VENDED')) {
-      if (order.status === 'PAID') {
-        await orderStore.markOrderAsVended(order.orderNo);
+      for (const stale of expired) {
+        console.log('[vend] EXPIRED ' + JSON.stringify(stale));
+        eventBroadcaster.broadcast('VEND_EXPIRED', stale);
       }
 
+      if (!command) {
+        res.status(200).json({ Code: '0', Msg: 'SUCCESS', Data: '' });
+        return;
+      }
+
+      console.log('[vend] DISPATCH ' + JSON.stringify(command));
+      eventBroadcaster.broadcast('VEND_DISPATCHED', { ...command, machineId });
+
       res.status(200).json({
-        code: 0,
-        status: 'SUCCESS',
-        paid: true,
-        action: 'VEND',
-        slotNo: order.slotNo,
+        Code: '0',
+        Msg: 'SUCCESS',
+        TradeNo: command.TradeNo,
+        SlotNo: command.SlotNo,
+        Amount: command.Amount,
+        PayType: command.PayType,
       });
       return;
     }
 
-    res.status(200).json({
-      code: 0,
-      status: 'WAITING',
-      paid: false,
-    });
+    // FunCode 1000 and anything else: acknowledge so the machine keeps going.
+    if (funCode !== '1000') {
+      console.log('[vend] UNKNOWN FunCode ' + JSON.stringify({ funCode, body }));
+    }
+
+    res.status(200).json(ACK);
   } catch (error: any) {
-    res.status(500).json({ code: 500, msg: error.message });
+    console.error('[vend] handler error', error);
+    // Still acknowledge: a machine stuck retrying a failed poll is worse than a
+    // missed message, and the queue keeps the command for the next one.
+    res.status(200).json(ACK);
   }
 };
+
+/**
+ * Settle an order against the machine's dispense confirmation.
+ *
+ * Status "0" means the product dropped. Anything else means it did not: motor
+ * jam, empty slot, or no drop detected. The customer has already paid in that
+ * case, so it is recorded as a failure needing a human rather than quietly
+ * treated as delivered.
+ */
+async function settleDispense(params: {
+  tradeNo: string;
+  status: string;
+  body: Record<string, string>;
+}): Promise<void> {
+  const inFlight = vendQueue.takeInFlight(params.tradeNo);
+  const orderNo = inFlight?.orderNo ?? params.tradeNo;
+
+  const order = orderNo ? await orderStore.getOrder(orderNo) : null;
+
+  console.log(
+    '[vend] CONFIRMATION ' +
+      JSON.stringify({
+        tradeNo: params.tradeNo,
+        status: params.status,
+        matchedOrder: order?.orderNo ?? null,
+        wasDispatchedByUs: Boolean(inFlight),
+        body: params.body,
+      })
+  );
+
+  if (!order) {
+    // The machine reports its own offline sales too, which have no order here.
+    eventBroadcaster.broadcast('VEND_CONFIRMATION_UNMATCHED', params.body);
+    return;
+  }
+
+  // Only settle an order this server actually handed over, or one that is at
+  // least paid. The machine also reports its own cash and card sales, and a
+  // TradeNo of its choosing must never be able to mark an unpaid order as
+  // delivered.
+  const settleable = Boolean(inFlight) || order.status === 'PAID';
+
+  if (!settleable) {
+    console.log(
+      '[vend] CONFIRMATION IGNORED ' +
+        JSON.stringify({ orderNo: order.orderNo, status: order.status, tradeNo: params.tradeNo })
+    );
+    eventBroadcaster.broadcast('VEND_CONFIRMATION_IGNORED', {
+      orderNo: order.orderNo,
+      orderStatus: order.status,
+    });
+    return;
+  }
+
+  if (params.status === '0') {
+    await orderStore.markOrderDispensed(order.orderNo);
+    return;
+  }
+
+  await orderStore.markOrderDispenseFailed(order.orderNo, `machine status ${params.status}`);
+}
 
 /**
  * GET /api/orders/:orderNo/status
@@ -258,7 +277,11 @@ export const getOrderStatus = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    const paid = order.status === 'PAID' || order.status === 'VENDED';
+    const paid =
+      order.status === 'PAID' ||
+      order.status === 'VENDED' ||
+      order.status === 'DISPENSED' ||
+      order.status === 'DISPENSE_FAILED';
     res.status(200).json({
       orderNo: order.orderNo,
       status: order.status,

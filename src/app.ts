@@ -30,9 +30,7 @@ import {
   getTelebirrLog,
   getOrderDashboardData,
   renderDashboard,
-  armVendTest,
-  getVendTest,
-  disarmVendTest,
+  getVendQueue,
 } from './controllers/diagnosticsController';
 import { orderStore } from './services/orderStore';
 import { eventBroadcaster } from './services/eventBroadcaster';
@@ -96,10 +94,8 @@ app.get('/dashboard', renderDashboard);
 app.get('/api/diagnostics/orders', getOrderDashboardData);
 app.get('/api/diagnostics/telebirr-log', getTelebirrLog);
 
-// Dispense experiments: arm a command, watch what the machine does.
-app.post('/api/vend-test/arm', armVendTest);
-app.get('/api/vend-test', getVendTest);
-app.post('/api/vend-test/disarm', disarmVendTest);
+// What is waiting to be dispensed, per machine.
+app.get('/api/vend-queue', getVendQueue);
 app.get('/api/orders/:orderNo/status', getOrderStatus);
 app.get('/api/checkout/session', getCheckoutSession);
 

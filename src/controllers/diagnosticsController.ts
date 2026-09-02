@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { eventBroadcaster } from '../services/eventBroadcaster';
 import { prisma } from '../lib/prisma';
-import * as vendExperiment from '../services/vendExperiment';
+import * as vendQueue from '../services/vendQueue';
 import { telebirrAudit } from '../services/telebirr';
 
 /**
@@ -131,51 +131,8 @@ export const renderDashboard = async (req: Request, res: Response): Promise<void
   res.render('dashboard');
 };
 
-/**
- * Dispense experiment control. Undocumented machine protocol, so the response
- * shape is found by trial; these endpoints make each attempt cheap.
- *
- *   POST /api/vend-test/arm   { slotNo, machineId, candidate? }
- *   GET  /api/vend-test       current state and what the machine did after
- *   POST /api/vend-test/disarm
- */
-export const armVendTest = async (req: Request, res: Response): Promise<void> => {
+/** GET /api/vend-queue - what is waiting for each machine, and what is in flight. */
+export const getVendQueue = async (req: Request, res: Response): Promise<void> => {
   if (!dashboardAllowed(req, res)) return;
-
-  const slotNo = String(req.body?.slotNo ?? '').trim();
-  const machineId = String(req.body?.machineId ?? '').trim();
-
-  if (!slotNo || !machineId) {
-    res.status(400).json({ success: false, message: 'slotNo and machineId are required' });
-    return;
-  }
-
-  const state = vendExperiment.arm({
-    slotNo,
-    machineId,
-    orderNo: req.body?.orderNo ?? null,
-    candidateName: req.body?.candidate,
-  });
-
-  res.status(200).json({
-    success: true,
-    message: 'Armed. The next poll from this machine gets the command.',
-    armed: state,
-    candidates: vendExperiment.CANDIDATES.map((c) => c.name),
-  });
-};
-
-export const getVendTest = async (req: Request, res: Response): Promise<void> => {
-  if (!dashboardAllowed(req, res)) return;
-  res.status(200).json({
-    success: true,
-    armed: vendExperiment.current(),
-    candidates: vendExperiment.CANDIDATES.map((c) => ({ name: c.name, contentType: c.contentType })),
-  });
-};
-
-export const disarmVendTest = async (req: Request, res: Response): Promise<void> => {
-  if (!dashboardAllowed(req, res)) return;
-  vendExperiment.disarm();
-  res.status(200).json({ success: true, message: 'Disarmed.' });
+  res.status(200).json({ success: true, ...vendQueue.inspect() });
 };
