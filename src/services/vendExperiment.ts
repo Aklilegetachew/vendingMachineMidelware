@@ -16,9 +16,11 @@
 
 export interface VendCandidate {
   name: string;
-  contentType: 'json' | 'form';
+  contentType: 'json' | 'form' | 'text';
   /** Placeholders: {{slotNo}} {{machineId}} {{tradeNo}} {{quantity}} {{amount}} */
   template: string;
+  /** Non-200 status, for probing whether the machine reads the reply at all. */
+  statusCode?: number;
 }
 
 /**
@@ -61,6 +63,26 @@ export const CANDIDATES: VendCandidate[] = [
     name: 'legacy-vend-json',
     contentType: 'json',
     template: '{"code":0,"status":"SUCCESS","paid":true,"action":"VEND","slotNo":{{slotNo}}}',
+  },
+
+  // --- Probes. These are not dispense attempts; they test whether the machine
+  // reads our reply at all. If it behaves identically to a normal poll, the
+  // body is being ignored and no response shape will ever trigger a dispense.
+  {
+    name: 'probe-garbage',
+    contentType: 'text',
+    template: 'THIS_IS_NOT_A_VALID_RESPONSE_AT_ALL_%%%',
+  },
+  {
+    name: 'probe-http-500',
+    contentType: 'json',
+    template: '{"error":"probe"}',
+    statusCode: 500,
+  },
+  {
+    name: 'probe-empty',
+    contentType: 'text',
+    template: '',
   },
 ];
 
@@ -113,7 +135,13 @@ export function current(): ArmedDispense | null {
  */
 export function takeResponse(
   machineId: string
-): { body: string; contentType: string; candidate: string; slotNo: string } | null {
+): {
+  body: string;
+  contentType: string;
+  candidate: string;
+  slotNo: string;
+  statusCode: number;
+} | null {
   if (!armed || armed.servedAt) return null;
   if (armed.machineId && machineId && armed.machineId !== machineId) return null;
 
@@ -127,14 +155,18 @@ export function takeResponse(
 
   armed.servedAt = Date.now();
 
+  const contentTypes = {
+    json: 'application/json',
+    form: 'application/x-www-form-urlencoded',
+    text: 'text/plain',
+  };
+
   return {
     body,
-    contentType:
-      armed.candidate.contentType === 'json'
-        ? 'application/json'
-        : 'application/x-www-form-urlencoded',
+    contentType: contentTypes[armed.candidate.contentType],
     candidate: armed.candidate.name,
     slotNo: armed.slotNo,
+    statusCode: armed.candidate.statusCode ?? 200,
   };
 }
 

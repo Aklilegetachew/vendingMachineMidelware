@@ -197,7 +197,7 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
           JSON.stringify({ candidate: experiment.candidate, slotNo: experiment.slotNo, body: experiment.body })
       );
       eventBroadcaster.broadcast('VEND_EXPERIMENT_SERVED', experiment);
-      res.status(200).type(experiment.contentType).send(experiment.body);
+      res.status(experiment.statusCode).type(experiment.contentType).send(experiment.body);
       return;
     }
 
