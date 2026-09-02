@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { eventBroadcaster } from '../services/eventBroadcaster';
 import { prisma } from '../lib/prisma';
 import * as vendQueue from '../services/vendQueue';
+import * as machineInventory from '../services/machineInventory';
 import { telebirrAudit } from '../services/telebirr';
 
 /**
@@ -135,4 +136,31 @@ export const renderDashboard = async (req: Request, res: Response): Promise<void
 export const getVendQueue = async (req: Request, res: Response): Promise<void> => {
   if (!dashboardAllowed(req, res)) return;
   res.status(200).json({ success: true, ...vendQueue.inspect() });
+};
+
+/**
+ * GET /api/machine-inventory?machineId=...&all=1
+ *
+ * Current slot state as the machine last reported it. Slots with status 255 are
+ * hidden unless `all=1`: those positions are not fitted and report sentinel
+ * values (price 6553.5, stock 199) that read as real products otherwise.
+ */
+export const getMachineInventory = async (req: Request, res: Response): Promise<void> => {
+  if (!dashboardAllowed(req, res)) return;
+
+  const machineId = String(req.query.machineId ?? machineInventory.machineIds()[0] ?? '');
+  const showAll = req.query.all === '1';
+  const slots = machineInventory.slots(machineId, !showAll);
+
+  res.status(200).json({
+    success: true,
+    machineId,
+    knownMachines: machineInventory.machineIds(),
+    counts: {
+      slots: slots.length,
+      stocked: slots.filter((s) => s.stock > 0).length,
+      empty: slots.filter((s) => s.stock === 0).length,
+    },
+    slots,
+  });
 };

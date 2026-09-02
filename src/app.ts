@@ -31,6 +31,7 @@ import {
   getOrderDashboardData,
   renderDashboard,
   getVendQueue,
+  getMachineInventory,
 } from './controllers/diagnosticsController';
 import { orderStore } from './services/orderStore';
 import { eventBroadcaster } from './services/eventBroadcaster';
@@ -96,6 +97,7 @@ app.get('/api/diagnostics/telebirr-log', getTelebirrLog);
 
 // What is waiting to be dispensed, per machine.
 app.get('/api/vend-queue', getVendQueue);
+app.get('/api/machine-inventory', getMachineInventory);
 app.get('/api/orders/:orderNo/status', getOrderStatus);
 app.get('/api/checkout/session', getCheckoutSession);
 

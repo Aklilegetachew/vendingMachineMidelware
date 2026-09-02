@@ -5,6 +5,7 @@ import { eventBroadcaster } from '../services/eventBroadcaster';
 import { sandboxPaymentsAllowed } from '../config/telebirr';
 import { reconcilePendingOrder } from '../services/telebirr/reconcile';
 import * as vendQueue from '../services/vendQueue';
+import * as machineInventory from '../services/machineInventory';
 
 /**
  * Query parameters a machine supplies when its QR code is scanned.
@@ -183,11 +184,25 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
       return;
     }
 
-    // FunCode 1000 and anything else: acknowledge so the machine keeps going.
-    if (funCode !== '1000') {
-      console.log('[vend] UNKNOWN FunCode ' + JSON.stringify({ funCode, body }));
+    // FunCode 1000: an inventory report for one slot. Recorded so current stock
+    // is queryable, and logged compactly - the full body once per second per
+    // slot would bury everything else.
+    if (funCode === '1000') {
+      const slot = machineInventory.record(machineId, body);
+
+      if (slot && slot.status !== '255') {
+        console.log(
+          `[vend] INV slot=${slot.slotNo} stock=${slot.stock}/${slot.capacity} ` +
+            `price=${slot.price} name="${slot.name}"`
+        );
+      }
+
+      res.status(200).json(ACK);
+      return;
     }
 
+    // Anything unrecognised: log it in full, since it is something new.
+    console.log('[vend] UNKNOWN FunCode ' + JSON.stringify({ funCode, body }));
     res.status(200).json(ACK);
   } catch (error: any) {
     console.error('[vend] handler error', error);
