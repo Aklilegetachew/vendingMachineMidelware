@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { eventBroadcaster } from './eventBroadcaster';
 import * as vendQueue from './vendQueue';
+import { logFlow } from '../lib/flowLogger';
 
 export type OrderStatus = 'PENDING' | 'PROCESSING' | 'PAID' | 'VENDED' | 'EXPIRED';
 
@@ -136,6 +137,18 @@ export class OrderStore {
     const expiresAt = new Date(new Date(updated.createdAt).getTime() + 5 * 60 * 1000);
     eventBroadcaster.broadcast('ORDER_PAID', { ...updated, expiresAt });
 
+    logFlow('payment_confirmed', updated.orderNo, {
+      via: 'sandbox',
+      transactionId: updated.paymentReference,
+      amount: Number(updated.price).toFixed(2),
+    });
+
+    logFlow('vend_queued', updated.orderNo, {
+      machineId: updated.machineId,
+      slotNo: updated.slotNo,
+      amount: Number(updated.price).toFixed(2),
+    });
+
     // Queue the dispense here too, so the sandbox path exercises exactly the
     // same machine handover as a real Telebirr payment.
     vendQueue.enqueue(updated.machineId, {
@@ -230,6 +243,12 @@ export class OrderStore {
         PayType: '3',
         timestamp: Date.now(),
         orderNo: updated.orderNo,
+      });
+
+      logFlow('vend_queued', updated.orderNo, {
+        machineId: updated.machineId,
+        slotNo: updated.slotNo,
+        amount: Number(updated.price).toFixed(2),
       });
 
       eventBroadcaster.broadcast('VEND_QUEUED', {

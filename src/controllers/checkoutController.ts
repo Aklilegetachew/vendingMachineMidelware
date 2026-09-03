@@ -6,6 +6,7 @@ import { sandboxPaymentsAllowed } from '../config/telebirr';
 import { reconcilePendingOrder } from '../services/telebirr/reconcile';
 import * as vendQueue from '../services/vendQueue';
 import * as machineInventory from '../services/machineInventory';
+import { logFlow } from '../lib/flowLogger';
 
 /**
  * Query parameters a machine supplies when its QR code is scanned.
@@ -67,11 +68,24 @@ export const renderCheckoutPage = async (req: Request, res: Response): Promise<v
       return;
     }
 
+    logFlow('scan', null, {
+      mid: parsed.data.mid,
+      sid: parsed.data.sid,
+      pid: parsed.data.pid,
+      pri: parsed.data.pri,
+    });
+
     const order = await orderStore.createCheckoutOrder({
       mid: parsed.data.mid,
       sid: parsed.data.sid,
       pid: parsed.data.pid,
       pri: parsed.data.pri,
+    });
+
+    logFlow('order_created', order.orderNo, {
+      machineId: order.machineId,
+      slotNo: order.slotNo,
+      price: order.price,
     });
 
     res.render('checkout', {
@@ -170,7 +184,13 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
         return;
       }
 
-      console.log('[vend] DISPATCH ' + JSON.stringify(command));
+      logFlow('vend_dispatched', command.orderNo, {
+        machineId,
+        slotNo: command.SlotNo,
+        amount: command.Amount,
+        tradeNo: command.TradeNo,
+        waitedMs: Date.now() - command.timestamp,
+      });
       eventBroadcaster.broadcast('VEND_DISPATCHED', { ...command, machineId });
 
       res.status(200).json({
@@ -230,16 +250,13 @@ async function settleDispense(params: {
 
   const order = orderNo ? await orderStore.getOrder(orderNo) : null;
 
-  console.log(
-    '[vend] CONFIRMATION ' +
-      JSON.stringify({
-        tradeNo: params.tradeNo,
-        status: params.status,
-        matchedOrder: order?.orderNo ?? null,
-        wasDispatchedByUs: Boolean(inFlight),
-        body: params.body,
-      })
-  );
+  logFlow('vend_confirmed', order?.orderNo ?? null, {
+    tradeNo: params.tradeNo,
+    machineStatus: params.status,
+    dispensed: params.status === '0',
+    wasDispatchedByUs: Boolean(inFlight),
+    slotNo: params.body.SlotNo,
+  });
 
   if (!order) {
     // The machine reports its own offline sales too, which have no order here.
@@ -267,10 +284,17 @@ async function settleDispense(params: {
 
   if (params.status === '0') {
     await orderStore.markOrderDispensed(order.orderNo);
+    logFlow('order_dispensed', order.orderNo, { slotNo: order.slotNo, price: order.price });
     return;
   }
 
   await orderStore.markOrderDispenseFailed(order.orderNo, `machine status ${params.status}`);
+  logFlow('order_failed', order.orderNo, {
+    reason: `machine status ${params.status}`,
+    slotNo: order.slotNo,
+    price: order.price,
+    note: 'customer paid and received nothing',
+  });
 }
 
 /**

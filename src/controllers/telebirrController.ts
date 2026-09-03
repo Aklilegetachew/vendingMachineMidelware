@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { orderStore } from '../services/orderStore';
 import { eventBroadcaster } from '../services/eventBroadcaster';
 import { getTelebirrClient, telebirrAudit } from '../services/telebirr';
+import { logFlow } from '../lib/flowLogger';
 
 /**
  * Telebirr Fabric gateway endpoints.
@@ -89,6 +90,12 @@ export const handleTelebirrNotify = async (req: Request, res: Response): Promise
 
   try {
     const payload = parseNotifyBody(rawBody, req.headers['content-type']);
+    logFlow('notify_received', String(payload.callback_info ?? '') || null, {
+      tradeStatus: payload.trade_status ?? null,
+      merchOrderId: payload.merch_order_id ?? null,
+      amount: payload.total_amount ?? null,
+    });
+
     const result = await getTelebirrClient().confirmPayment(payload);
     await telebirrAudit('notify_confirmed', result);
 
@@ -125,6 +132,12 @@ export const handleTelebirrNotify = async (req: Request, res: Response): Promise
       res.status(200).json({ code: 0, msg: 'success' });
       return;
     }
+
+    logFlow('payment_confirmed', order.orderNo, {
+      via: result.via,
+      transactionId: result.transactionId,
+      amount: result.amount,
+    });
 
     const fulfilled = await orderStore.markOrderPaidByTelebirr({
       orderNo: order.orderNo,
@@ -233,6 +246,13 @@ export const createMiniAppOrder = async (req: Request, res: Response): Promise<v
       return;
     }
 
+    logFlow('pay_requested', order.orderNo, {
+      mode: 'InApp',
+      amount: order.price,
+      slotNo: order.slotNo,
+      machineId: order.machineId,
+    });
+
     const result = await getTelebirrClient().createInAppOrder({
       orderId: order.orderNo,
       amount: order.price,
@@ -246,11 +266,17 @@ export const createMiniAppOrder = async (req: Request, res: Response): Promise<v
       result.prepayId
     );
 
+    logFlow('preorder_ok', order.orderNo, {
+      merchOrderId: result.merchantOrderId,
+      prepayId: result.prepayId,
+    });
+
     eventBroadcaster.broadcast('TELEBIRR_MINIAPP_INITIATED', {
       orderNo: order.orderNo,
       merchOrderId: result.merchantOrderId,
     });
 
+    logFlow('handoff_to_app', order.orderNo, { rawRequestLength: result.rawRequest.length });
     res.status(200).type('text/plain').send(result.rawRequest);
   } catch (error: any) {
     await telebirrAudit('miniapp_order_failed', {
