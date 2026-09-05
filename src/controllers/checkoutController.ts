@@ -230,15 +230,33 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
       );
     }
 
+    // FunCode 1000: an inventory report for one slot. This MUST be matched
+    // before any status-based check: inventory messages also carry a `Status`
+    // field ("0" = slot enabled, "255" = not fitted), so a looser test
+    // misreads the whole inventory sweep as dispense confirmations.
+    if (funCode === '1000') {
+      const slot = machineInventory.record(machineId, body);
+
+      if (slot && slot.status !== '255') {
+        console.log(
+          `[vend] INV slot=${slot.slotNo} stock=${slot.stock}/${slot.capacity} ` +
+            `price=${slot.price} name="${slot.name}"`
+        );
+      }
+
+      res.status(200).json(ACK);
+      return;
+    }
+
     /**
-     * A dispense result. Recognised by FunCode 5000 or by any status-bearing
-     * field, so a machine that reports completions in a different dialect is
-     * still acknowledged and still clears its outbox.
+     * A dispense result. FunCode 5000 is the known form; the status-bearing
+     * fallback only applies when the machine sends no FunCode at all, so a
+     * different dialect is still acknowledged without hijacking a known code.
      */
     const statusValue =
       body.Status ?? body.status ?? body.machineStatus ?? (body.dispensed ? '0' : undefined);
 
-    if (funCode === '5000' || statusValue !== undefined) {
+    if (funCode === '5000' || (!funCode && statusValue !== undefined)) {
       await settleDispense({ tradeNo, status: String(statusValue ?? ''), body });
 
       // Echo the TradeNo back: an unacknowledged record is retried forever, and
@@ -283,23 +301,6 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
       eventBroadcaster.broadcast('VEND_DISPATCHED', { ...command, machineId });
 
       res.status(200).json(response);
-      return;
-    }
-
-    // FunCode 1000: an inventory report for one slot. Recorded so current stock
-    // is queryable, and logged compactly - the full body once per second per
-    // slot would bury everything else.
-    if (funCode === '1000') {
-      const slot = machineInventory.record(machineId, body);
-
-      if (slot && slot.status !== '255') {
-        console.log(
-          `[vend] INV slot=${slot.slotNo} stock=${slot.stock}/${slot.capacity} ` +
-            `price=${slot.price} name="${slot.name}"`
-        );
-      }
-
-      res.status(200).json(ACK);
       return;
     }
 
