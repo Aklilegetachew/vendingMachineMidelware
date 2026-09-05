@@ -5,6 +5,7 @@ import { eventBroadcaster } from '../services/eventBroadcaster';
 import { sandboxPaymentsAllowed } from '../config/telebirr';
 import { reconcilePendingOrder } from '../services/telebirr/reconcile';
 import * as vendQueue from '../services/vendQueue';
+import * as ackProbe from '../services/ackProbe';
 import * as machineInventory from '../services/machineInventory';
 import { logFlow } from '../lib/flowLogger';
 
@@ -259,16 +260,23 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
     if (funCode === '5000' || (!funCode && statusValue !== undefined)) {
       await settleDispense({ tradeNo, status: String(statusValue ?? ''), body });
 
-      // Echo the TradeNo back: an unacknowledged record is retried forever, and
-      // the machine may match the acknowledgement by trade number.
-      const confirmAck: Record<string, unknown> = { ...ACK };
-      if (tradeNo) {
-        confirmAck.TradeNo = tradeNo;
-        confirmAck.tradeNo = tradeNo;
-      }
+      // An unacknowledged record is retransmitted about every 30 seconds with
+      // the same TradeNo. That retry is our only feedback channel, so each one
+      // gets the next candidate format; when the retries stop, the variant in
+      // the last log line is the one the machine accepted.
+      const ack = ackProbe.nextAck({ tradeNo, funCode, body });
 
-      console.log('[vend] RES(confirm-ack) ' + JSON.stringify(confirmAck));
-      res.status(200).json(confirmAck);
+      console.log(
+        `[vend] RES(confirm-ack) variant=${ack.variant.name} attempt=${ack.attempt} ` +
+          `tradeNo=${tradeNo} ` +
+          JSON.stringify(ack.payload)
+      );
+
+      if (ack.variant.kind === 'text') {
+        res.status(200).type('text/plain').send(String(ack.payload));
+      } else {
+        res.status(200).json(ack.payload);
+      }
       return;
     }
 
