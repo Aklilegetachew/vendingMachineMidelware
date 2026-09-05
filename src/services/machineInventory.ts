@@ -71,3 +71,47 @@ export function machineIds(): string[] {
 export function slot(machineId: string, slotNo: number): SlotState | null {
   return machines.get(machineId)?.get(slotNo) ?? null;
 }
+
+/**
+ * Machine telemetry, carried on some FunCode 4000 polls.
+ *
+ * Observed fields: Tmp (cabinet temperature), Ntw (network state), DpSen (drop
+ * sensor). DpSen matters for dispensing: a machine that believes it has no
+ * working drop sensor may refuse to run the motor, or may never report a
+ * completion.
+ */
+export interface MachineHealth {
+  machineId: string;
+  temperature: string | null;
+  network: string | null;
+  dropSensor: string | null;
+  updatedAt: string;
+}
+
+const health = new Map<string, MachineHealth>();
+
+/** Record telemetry if this poll carried any. Returns it when something changed. */
+export function recordHealth(
+  machineId: string,
+  body: Record<string, string>
+): MachineHealth | null {
+  if (!machineId) return null;
+  if (body.Tmp === undefined && body.Ntw === undefined && body.DpSen === undefined) {
+    return null;
+  }
+
+  const state: MachineHealth = {
+    machineId,
+    temperature: body.Tmp ?? null,
+    network: body.Ntw ?? null,
+    dropSensor: body.DpSen ?? null,
+    updatedAt: new Date().toISOString(),
+  };
+
+  health.set(machineId, state);
+  return state;
+}
+
+export function getHealth(machineId: string): MachineHealth | null {
+  return health.get(machineId) ?? null;
+}

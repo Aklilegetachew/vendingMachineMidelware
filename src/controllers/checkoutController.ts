@@ -274,6 +274,17 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
 
     // FunCode 4000: hand over one queued dispense, or report idle.
     if (funCode === '4000') {
+      // Some polls carry telemetry. DpSen is the drop sensor, which is worth
+      // watching: without one the machine may not run the motor or may never
+      // report a completion.
+      const health = machineInventory.recordHealth(machineId, body);
+      if (health) {
+        console.log(
+          `[vend] HEALTH temp=${health.temperature} network=${health.network} ` +
+            `dropSensor=${health.dropSensor}`
+        );
+      }
+
       const { command, expired } = vendQueue.dequeue(machineId);
 
       for (const stale of expired) {

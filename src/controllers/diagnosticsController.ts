@@ -164,3 +164,55 @@ export const getMachineInventory = async (req: Request, res: Response): Promise<
     slots,
   });
 };
+
+/**
+ * POST /api/vend-queue/test  { machineId, slotNo, amount? }
+ *
+ * Queue a dispense without a payment, so the machine handover can be tested
+ * repeatedly while the correct response shape is still being established.
+ *
+ * Requires DASHBOARD_KEY to be set AND supplied: this drops real product, so
+ * unlike the read-only diagnostics it must never be open by default.
+ */
+export const queueTestDispense = async (req: Request, res: Response): Promise<void> => {
+  if (!process.env.DASHBOARD_KEY) {
+    res.status(404).json({
+      success: false,
+      message: 'Set DASHBOARD_KEY in the environment to enable test dispensing.',
+    });
+    return;
+  }
+  if (!dashboardAllowed(req, res)) return;
+
+  const machineId = String(req.body?.machineId ?? '').trim();
+  const slotNo = String(req.body?.slotNo ?? '').trim();
+  const amount = Number(req.body?.amount ?? 0).toFixed(2);
+
+  if (!machineId || !slotNo) {
+    res.status(400).json({ success: false, message: 'machineId and slotNo are required' });
+    return;
+  }
+
+  const tradeNo = `TEST${Date.now()}`;
+  vendQueue.enqueue(machineId, {
+    TradeNo: tradeNo,
+    SlotNo: slotNo,
+    Amount: amount,
+    PayType: '3',
+    timestamp: Date.now(),
+    // No order backs this, so a confirmation cannot settle anything. The
+    // settlement guard already refuses anything we did not dispatch or that is
+    // not PAID, and a TEST trade number matches no order either way.
+    orderNo: tradeNo,
+  });
+
+  console.log(`[vend] TEST QUEUED machine=${machineId} slot=${slotNo} tradeNo=${tradeNo}`);
+
+  res.status(200).json({
+    success: true,
+    message: 'Queued. The next FunCode 4000 poll collects it.',
+    tradeNo,
+    machineId,
+    slotNo,
+  });
+};
