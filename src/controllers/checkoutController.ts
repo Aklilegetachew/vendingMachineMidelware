@@ -38,6 +38,14 @@ function renderInvalid(res: Response, reason: string): void {
  */
 export const renderCheckoutPage = async (req: Request, res: Response): Promise<void> => {
   try {
+    // The machine encodes this URL into the QR on its screen. Log it verbatim:
+    // the schema below strips undeclared parameters, so a trade number the
+    // machine generated for the selection would otherwise vanish silently.
+    console.log(
+      '[pay] SCAN ' +
+        JSON.stringify({ url: req.originalUrl, query: req.query, ua: req.headers['user-agent'] })
+    );
+
     const { orderNo: customOrderNo } = req.query;
 
     // Path 1: returning to an order that already exists.
