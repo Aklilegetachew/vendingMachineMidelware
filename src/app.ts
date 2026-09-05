@@ -81,6 +81,24 @@ app.get('/pay', renderCheckoutPage);
 app.get('/pay/success', renderSuccessPage);
 app.post('/api/payment/telebirr/initiate', initiateTelebirrPayment);
 
+// The machine's admin screen configures TWO addresses: "Electric pickup" points
+// at /vend, and "Electric pay" points here. Only GET /pay existed - the checkout
+// page - so anything the machine posted to this channel got a 404 we never saw.
+// Log it verbatim, then run it through the same FunCode dispatcher, since we do
+// not yet know which dialect this channel speaks.
+app.post('/pay', (req: Request, res: Response, next) => {
+  console.log(
+    '[electric-pay] REQ ' +
+      JSON.stringify({
+        contentType: req.headers['content-type'],
+        body: req.body,
+        query: req.query,
+        ip: req.ip,
+      })
+  );
+  void handleDirectVendPoll(req, res).catch(next);
+});
+
 // Mini App (InApp) endpoints, called from inside the telebirr SuperApp.
 app.post('/api/payment/telebirr/miniapp/order', createMiniAppOrder);
 app.post('/api/payment/telebirr/miniapp/auth', miniAppAuthToken);
