@@ -141,17 +141,76 @@ export const renderSuccessPage = async (req: Request, res: Response): Promise<vo
 /**
  * POST /vend  (also GET, kept for manual checks)
  *
- * The AFEN machine's only channel. It posts form-encoded TitleCase fields and
- * expects TitleCase JSON back: `Code` and `Msg`, not `code` and `msg`.
+ * The AFEN machine's only channel. It posts form-encoded TitleCase fields:
  *
- *   FunCode 1000  inventory heartbeat, one slot per message   -> plain ACK
- *   FunCode 4000  poll every ~3s, this is where a dispense is handed over
- *   FunCode 5000  dispense confirmation from the drop sensor  -> ACK, settle order
+ *   FunCode 1000  inventory report, one slot per message
+ *   FunCode 4000  poll every ~3s, where a dispense is handed over
+ *   FunCode 5000  drop sensor result, carrying `Status` ("0" = product dropped)
  *
- * Anything unrecognised is acknowledged rather than errored: the machine has no
- * error path we can observe, and a non-ACK risks stalling its loop.
+ * The reply shape that actually triggers the motor is still unconfirmed, so the
+ * dispense response deliberately carries every naming variant at once (see
+ * buildDispenseResponse). The machine reads the keys it knows and ignores the
+ * rest, which costs nothing and beats one guess per trip to the machine.
+ *
+ * Everything is acknowledged, never errored: the machine has no error path we
+ * can observe, and a non-200 risks stalling its loop.
  */
-const ACK = { Code: '0', Msg: 'SUCCESS' } as const;
+const ACK = { Code: '0', Msg: 'SUCCESS', code: 0, msg: 'success' } as const;
+
+/**
+ * A dispense command in every dialect we have reason to suspect.
+ *
+ * `Data` is included as an object because the idle reply uses `Data: ""`, which
+ * suggests it is the payload container. Numbers are sent unquoted for slot
+ * fields; string variants are covered by the TitleCase keys.
+ */
+function buildDispenseResponse(command: {
+  TradeNo: string;
+  SlotNo: string;
+  Amount: string;
+}): Record<string, unknown> {
+  const slotNumber = Number(command.SlotNo);
+  const payload = {
+    TradeNo: command.TradeNo,
+    SlotNo: slotNumber,
+    SlotNum: slotNumber,
+    Amount: command.Amount,
+    PayType: '3',
+    Quantity: 1,
+    action: 'dispense',
+  };
+
+  return {
+    // Both casings of the envelope.
+    Code: '0',
+    Msg: 'SUCCESS',
+    code: 0,
+    msg: 'success',
+
+    action: 'dispense',
+    Action: 'dispense',
+
+    TradeNo: command.TradeNo,
+    tradeNo: command.TradeNo,
+
+    // Numbers, not strings, under every spelling seen or suggested.
+    SlotNo: slotNumber,
+    slotNo: slotNumber,
+    SlotNum: slotNumber,
+    slotNum: slotNumber,
+
+    Amount: command.Amount,
+    amount: command.Amount,
+
+    PayType: '3',
+    payType: '3',
+
+    Quantity: 1,
+    quantity: 1,
+
+    Data: payload,
+  };
+}
 
 export const handleDirectVendPoll = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -160,13 +219,38 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
 
     const funCode = String(body.FunCode ?? query.FunCode ?? '');
     const machineId = String(body.MachineID ?? body.machineId ?? query.mid ?? '');
-    const tradeNo = String(body.TradeNo ?? query.TradeNo ?? '');
+    const tradeNo = String(body.TradeNo ?? body.tradeNo ?? query.TradeNo ?? '');
 
-    // FunCode 5000: the drop sensor has reported. This is the only message that
-    // says whether the customer actually received anything.
-    if (funCode === '5000') {
-      await settleDispense({ tradeNo, status: String(body.Status ?? ''), body });
-      res.status(200).json(ACK);
+    // Log every request verbatim except the inventory flood, which is
+    // summarised below instead.
+    if (funCode !== '1000') {
+      console.log(
+        '[vend] REQ ' +
+          JSON.stringify({ funCode, machineId, tradeNo, body, query, ip: req.ip })
+      );
+    }
+
+    /**
+     * A dispense result. Recognised by FunCode 5000 or by any status-bearing
+     * field, so a machine that reports completions in a different dialect is
+     * still acknowledged and still clears its outbox.
+     */
+    const statusValue =
+      body.Status ?? body.status ?? body.machineStatus ?? (body.dispensed ? '0' : undefined);
+
+    if (funCode === '5000' || statusValue !== undefined) {
+      await settleDispense({ tradeNo, status: String(statusValue ?? ''), body });
+
+      // Echo the TradeNo back: an unacknowledged record is retried forever, and
+      // the machine may match the acknowledgement by trade number.
+      const confirmAck: Record<string, unknown> = { ...ACK };
+      if (tradeNo) {
+        confirmAck.TradeNo = tradeNo;
+        confirmAck.tradeNo = tradeNo;
+      }
+
+      console.log('[vend] RES(confirm-ack) ' + JSON.stringify(confirmAck));
+      res.status(200).json(confirmAck);
       return;
     }
 
@@ -180,9 +264,13 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
       }
 
       if (!command) {
-        res.status(200).json({ Code: '0', Msg: 'SUCCESS', Data: '' });
+        const idle = { ...ACK, Data: '' };
+        console.log('[vend] RES(idle) ' + JSON.stringify(idle));
+        res.status(200).json(idle);
         return;
       }
+
+      const response = buildDispenseResponse(command);
 
       logFlow('vend_dispatched', command.orderNo, {
         machineId,
@@ -191,16 +279,10 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
         tradeNo: command.TradeNo,
         waitedMs: Date.now() - command.timestamp,
       });
+      console.log('[vend] RES(DISPENSE) ' + JSON.stringify(response));
       eventBroadcaster.broadcast('VEND_DISPATCHED', { ...command, machineId });
 
-      res.status(200).json({
-        Code: '0',
-        Msg: 'SUCCESS',
-        TradeNo: command.TradeNo,
-        SlotNo: command.SlotNo,
-        Amount: command.Amount,
-        PayType: command.PayType,
-      });
+      res.status(200).json(response);
       return;
     }
 
@@ -221,7 +303,6 @@ export const handleDirectVendPoll = async (req: Request, res: Response): Promise
       return;
     }
 
-    // Anything unrecognised: log it in full, since it is something new.
     console.log('[vend] UNKNOWN FunCode ' + JSON.stringify({ funCode, body }));
     res.status(200).json(ACK);
   } catch (error: any) {
